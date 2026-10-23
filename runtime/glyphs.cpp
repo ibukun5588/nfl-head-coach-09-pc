@@ -50,7 +50,7 @@ struct Table
     Table()
     {
         std::string path = g_vfsCache + "/glyphs/playstation.bin";
-        FILE* f = fopen(path.c_str(), "rb");
+        FILE* f = HostFopen(path, "rb");
         if (!f)
         {
             fprintf(stderr, "[glyphs] no %s (tools/playstation_icons.py makes it): Xbox icons only\n", path.c_str());

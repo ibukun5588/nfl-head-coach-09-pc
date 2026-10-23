@@ -11,6 +11,7 @@
 //   /I<XenonRecomp-hc09>\thirdparty\simde tools\xexpatch.cpp /link <build>\XenonUtils\XenonUtils.lib <build>\thirdparty\disasm\disasm.lib
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -19,7 +20,7 @@
 
 namespace {
 
-bool Read(const char* path, std::vector<uint8_t>& out)
+bool Read(const std::filesystem::path& path, std::vector<uint8_t>& out)
 {
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
@@ -82,18 +83,19 @@ bool FromStfs(const std::vector<uint8_t>& d, std::vector<uint8_t>& xexp, std::st
 
 }  // namespace
 
-int main(int argc, char** argv)
+// Unicode arguments (wmain): a game folder with any characters in its path works.
+int wmain(int argc, wchar_t** argv)
 {
-    bool image = argc > 1 && !strcmp(argv[1], "--image");
+    bool image = argc > 1 && !wcscmp(argv[1], L"--image");
     if (argc != 4 + image)
     {
         fprintf(stderr, "usage: xexpatch [--image] <base default.xex> <default.xexp | title update package> <out>\n");
         return 2;
     }
-    const char* basePath = argv[1 + image], *patchPath = argv[2 + image], *outPath = argv[3 + image];
+    std::filesystem::path basePath = argv[1 + image], patchPath = argv[2 + image], outPath = argv[3 + image];
     std::vector<uint8_t> base, patch, out;
-    if (!Read(basePath, base)) { printf("FileOpenFailed: %s\n", basePath); return 1; }
-    if (!Read(patchPath, patch)) { printf("FileOpenFailed: %s\n", patchPath); return 1; }
+    if (!Read(basePath, base)) { printf("FileOpenFailed: %ls\n", basePath.c_str()); return 1; }
+    if (!Read(patchPath, patch)) { printf("FileOpenFailed: %ls\n", patchPath.c_str()); return 1; }
     if (patch.size() >= 4 && (!memcmp(patch.data(), "LIVE", 4) || !memcmp(patch.data(), "CON ", 4) || !memcmp(patch.data(), "PIRS", 4)))
     {
         std::vector<uint8_t> xexp;
@@ -117,7 +119,7 @@ int main(int argc, char** argv)
         out = std::vector<uint8_t>(out.begin() + peOff, out.begin() + peOff + size);
     }
     std::ofstream f(outPath, std::ios::binary);
-    if (!f.write(reinterpret_cast<const char*>(out.data()), std::streamsize(out.size()))) { printf("FileWriteFailed: %s\n", outPath); return 1; }
+    if (!f.write(reinterpret_cast<const char*>(out.data()), std::streamsize(out.size()))) { printf("FileWriteFailed: %ls\n", outPath.c_str()); return 1; }
     printf("Success\n");
     return 0;
 }

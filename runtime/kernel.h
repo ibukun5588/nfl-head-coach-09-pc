@@ -6,6 +6,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdio>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -132,6 +133,13 @@ std::string KernelThreadName(uint64_t tid);   // "" if unnamed
 void VfsMount(const std::string& drive, const std::string& hostDir);
 bool VfsUnmount(const std::string& drive);
 extern std::string g_vfsCache;
+extern std::string g_vfsSaves;
+
+// Host file paths are UTF-8 strings in the runtime (hc09.ini, the command line); these hand them to the OS (UTF-16 on
+// Windows), so folders with any characters work: a user name in Documents, a game folder (imports_io.cpp).
+std::filesystem::path HostPath(const std::string& utf8);
+std::string HostUtf8(const std::filesystem::path& p);
+FILE* HostFopen(const std::string& utf8, const char* mode);
 
 // Read a guest ANSI_STRING {u16 len, u16 max, u32 buf} into a host string.
 std::string ReadAnsiString(uint32_t pStr);

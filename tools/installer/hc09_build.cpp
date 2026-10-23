@@ -283,14 +283,23 @@ int wmain(int argc, wchar_t** argv)
         }
         Fail(std::string("the config has no ") + key);
     };
-    setKey("file_path", srcXex);
-    setKey("out_directory_path", out);
-    setKey("switch_table_file_path", work / L"jt_final.toml");
+    // XenonRecomp takes narrow (ANSI) paths: it gets only names relative to the work folder it runs in, so the game
+    // folder and the install folder (the user's name in it) may hold any characters. The 1.0 xex and ppc_context.h are
+    // copied in for that (1.2's patched xex is made there already).
+    if (srcXex != work / L"default-v12.xex")
+    {
+        fs::copy_file(srcXex, work / L"default.xex", fs::copy_options::overwrite_existing);
+        srcXex = work / L"default.xex";
+    }
+    fs::copy_file(kit / L"src" / L"ppc_context.h", work / L"ppc_context.h", fs::copy_options::overwrite_existing);
+    setKey("file_path", srcXex.filename());
+    setKey("out_directory_path", out.filename());
+    setKey("switch_table_file_path", L"jt_final.toml");
     { std::ofstream(work / L"hc09.toml", std::ios::binary) << cfg; }
     DWORD t0 = GetTickCount();
     // Run in the work folder with the config named relative to it: XenonRecomp joins the config's folder to the paths
-    // in it, so an absolute config path would spoil the absolute paths above.
-    if (RunOne({ (kit / L"XenonRecomp.exe").wstring(), L"hc09.toml", (kit / L"src" / L"ppc_context.h").wstring() },
+    // in it, so they stay relative to the work folder.
+    if (RunOne({ (kit / L"XenonRecomp.exe").wstring(), L"hc09.toml", L"ppc_context.h" },
                work / L"recomp.log", "XenonRecomp", work))
         Fail("the recompiler failed (see recomp.log)");
     std::vector<fs::path> sources;
@@ -364,8 +373,9 @@ int wmain(int argc, wchar_t** argv)
     Say("progress 4 %d linking", kSteps);
     fs::path rsp = work / L"link.rsp";
     {
-        std::wofstream r(rsp);
-        for (const auto& j : todo) r << Quote(j.obj.wstring()) << L"\n";
+        // UTF-8, as LLVM reads response files: the install folder's path may hold any characters (the user's name).
+        std::ofstream r(rsp, std::ios::binary);
+        for (const auto& j : todo) r << Narrow(Quote(j.obj.wstring())) << "\n";
     }
     fs::path exe = work / L"hc09.exe";
     if (RunOne({ (kit / L"toolchain" / L"bin" / L"lld-link.exe").wstring(), L"/OUT:" + exe.wstring(), L"/ENTRY:Hc09Entry",

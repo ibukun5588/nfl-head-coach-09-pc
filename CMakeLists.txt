@@ -227,7 +227,7 @@ if(HC09_CL)
   # Guest code runs native call chains on host stacks: 8 MiB like Linux's default
   # (std::thread on Windows takes the executable's default, 1 MiB otherwise).
   target_link_options(hc09 PRIVATE /STACK:8388608)
-  target_link_libraries(hc09 PRIVATE winmm ole32 ws2_32)   # timeBeginPeriod; COM for WASAPI; the live tweaker
+  target_link_libraries(hc09 PRIVATE winmm ole32 ws2_32 shell32)   # timeBeginPeriod; COM for WASAPI; the live tweaker; CommandLineToArgvW
 else()
   target_compile_options(hc09 PRIVATE
       -fno-strict-aliasing
@@ -449,15 +449,21 @@ if(WIN32)
   target_link_options(HC09Setup PRIVATE "/MANIFEST:EMBED"
     "/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'")
 
-  # The exe icon of hc09.exe and the launcher: res/hc09.ico when present. It is an optional private icon for
-  # development builds (never shipped), gitignored;
-  # the release build (HC09_DEV_TOOLS=OFF) has none until there is an icon of our own.
+  # The icon (resource 1) of hc09.exe (hc09rt.dll in the split build: the game window loads it from there, so the
+  # player-built hc09.exe and kit.ini's hashes stay as they are), the launcher and the installer: res/hc09-release.ico,
+  # our own design (tools/make_icon.py, 2026-10-23). An optional private res/hc09.ico (never shipped,
+  # gitignored) replaces it in development builds.
+  set(_hc09_icon "${CMAKE_SOURCE_DIR}/res/hc09-release.ico")
   if(HC09_DEV_TOOLS AND EXISTS "${CMAKE_SOURCE_DIR}/res/hc09.ico")
+    set(_hc09_icon "${CMAKE_SOURCE_DIR}/res/hc09.ico")
+  endif()
+  if(EXISTS "${_hc09_icon}")
     enable_language(RC)
-    file(WRITE "${CMAKE_BINARY_DIR}/hc09_icon.rc" "1 ICON \"${CMAKE_SOURCE_DIR}/res/hc09.ico\"\n")
-    target_sources(hc09 PRIVATE "${CMAKE_BINARY_DIR}/hc09_icon.rc")
-    target_sources(hc09-launcher PRIVATE "${CMAKE_BINARY_DIR}/hc09_icon.rc")
-    message(STATUS "hc09: exe icon res/hc09.ico")
+    file(WRITE "${CMAKE_BINARY_DIR}/hc09_icon.rc" "1 ICON \"${_hc09_icon}\"\n")
+    foreach(_t hc09 hc09-launcher HC09Setup)
+      target_sources(${_t} PRIVATE "${CMAKE_BINARY_DIR}/hc09_icon.rc")
+    endforeach()
+    message(STATUS "hc09: icon ${_hc09_icon}")
   endif()
 
   # hc09-xexpatch.exe: applies the user's 1.2 title update to their default.xex for the launcher (tools/xexpatch.cpp,

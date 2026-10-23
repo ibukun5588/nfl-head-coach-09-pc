@@ -2,6 +2,7 @@
 //
 //   [game]    root       game files folder (default.xex's folder; --root wins)
 //             cache      HC09_CACHE_DIR    saves and caches (default hc09-cache; the 1.2 build hc09-cache-v12)
+//             saves      HC09_SAVES_DIR    the saves instead in <saves>\1.0 or \1.2 (installs: Documents\...\Saves)
 //   [display] live       HC09_GPU_LIVE     render on the GPU in a window
 //             fullscreen HC09_FULLSCREEN   start in borderless fullscreen
 //             vsync      HC09_VSYNC        wait for the display when presenting
@@ -65,7 +66,7 @@ constexpr Known kKnown[] = {
     { "audio.output", "HC09_AUDIO_OUT", true },      { "audio.volume", "HC09_AUDIO_VOLUME", false },
     { "input.host", "HC09_HOST_INPUT", true },        { "input.controller", "HC09_PAD_API", false },
     { "input.glyphs", "HC09_GLYPHS", false },         { "game.cache", "HC09_CACHE_DIR", false },
-    { "input.pad", "HC09_PAD_NAME", false },
+    { "input.pad", "HC09_PAD_NAME", false },          { "game.saves", "HC09_SAVES_DIR", false },
 };
 
 }  // namespace

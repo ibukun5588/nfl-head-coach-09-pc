@@ -21,7 +21,7 @@ constexpr std::string_view kRelease[] = {
     "HC09_CONFIG",     "HC09_CACHE_DIR",  "HC09_GPU_LIVE",   "HC09_FULLSCREEN", "HC09_VSYNC",
     "HC09_GPU_EXACT",  "HC09_FRAMERATE",  "HC09_RENDERER",   "HC09_SCALE",      "HC09_NATIVE_MSAA",
     "HC09_AUDIO_OUT",  "HC09_AUDIO_VOLUME", "HC09_HOST_INPUT", "HC09_PAD_API",  "HC09_GLYPHS",
-    "HC09_PAD_NAME",
+    "HC09_PAD_NAME",   "HC09_SAVES_DIR",
 };
 
 constexpr bool Release(std::string_view name)

@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Assemble the build kit the release ships (docs/HANDOFF_M11.md step 3): everything tools/installer/hc09_build.cpp
-needs on the player's PC to build hc09.exe from their own default.xex. Our code and redistributable tools only: no
-game file and nothing compiled from one (the runtime DLLs are the hand-written runtime; the configs are addresses).
+needs on the player's PC to build hc09.exe from their own default.xex. Our code and redistributable tools, plus one
+game file when --tu is given: the 1.2 title update package, unchanged, so the installer builds 1.2 without the player
+finding it (2026-10-23: taken down on request; the installer falls back to the player's own file).
+Nothing compiled from a game file (the runtime DLLs are the hand-written runtime; the configs are addresses).
 
     python tools/make_kit.py --out <kit dir> --rt10 <split build 1.0> --rt12 <split build 1.2>
-        [--hash10 <hc09.exe built from 1.0>] [--hash12 <...1.2>] [--llvm "C:/Program Files/LLVM"]
+        [--hash10 <hc09.exe built from 1.0>] [--hash12 <...1.2>] [--tu <TU_12K2221_...G1>] [--llvm "C:/Program Files/LLVM"]
 
 --rt10/--rt12: CMake build folders with HC09_SPLIT=ON (hc09rt.dll, hc09rt.lib, the FFmpeg/SDL3 DLLs beside it).
 --hash10/--hash12: an hc09.exe built from the retail files with exactly this kit's tools (tools/player_build.py or a
 first hc09-build run): its SHA-256 goes into kit.ini, and hc09-build checks every player's build against it.
+--tu: Title Update #2 as Microsoft's package (hash-checked), into kit/title_update/ (never into git).
 """
 import argparse
 import glob
@@ -21,6 +24,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 XENON = os.path.join(ROOT, '..', 'XenonRecomp-hc09')
 UCRT = ['sqrt', 'sqrtf', 'exp2f', 'log2f']   # tools/player_build.py: what the recompiled code calls in ucrtbase.dll
+TU_NAME = 'TU_12K2221_0000004000000.00000000000G1'   # Title Update #2 (game version 1.2), docs/HANDOFF_RELEASE.md 1.1a
+TU_SHA256 = '43B31C2B51E9797C6CAF02377D84203E963B977504B30B175382A4D1E17C44F2'
 CRT_DLLS = ['msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll']
 
 
@@ -86,6 +91,7 @@ def main():
     ap.add_argument('--rt12', required=True)
     ap.add_argument('--hash10')
     ap.add_argument('--hash12')
+    ap.add_argument('--tu', help='the title update package to include (TU_12K2221_...G1, checked against its hash)')
     ap.add_argument('--llvm', default=r'C:\Program Files\LLVM')
     ap.add_argument('--no-trim', action='store_true', help='keep all of clang\'s and SIMDe\'s headers')
     ap.add_argument('--zip', help='with --setup: also pack the release folder into this .zip (Windows\' tar.exe)')
@@ -160,6 +166,13 @@ def main():
         if not os.path.exists(src):
             sys.exit(f'license file missing: {src}')
         copy(src, os.path.join(lic, name))
+    # The title update the installer uses when the player gives none (setup.cpp kBundledTu).
+    if a.tu:
+        if sha256(a.tu) != TU_SHA256:
+            sys.exit(f'{a.tu} is not Title Update #2 ({TU_NAME})')
+        copy(a.tu, os.path.join(out, 'title_update', TU_NAME))
+        print(f'title update included: {TU_NAME}')
+
     if a.setup:
         parent = os.path.dirname(out)
         copy(a.setup, os.path.join(parent, 'HC09Setup.exe'))

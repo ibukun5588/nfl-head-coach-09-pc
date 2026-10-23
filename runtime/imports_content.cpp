@@ -3,6 +3,7 @@
 // Device: a single HDD, id kDeviceId, always present (the device selector
 // "picks" it at once). Content lives on the host under
 //   <cache>/content/<xuid hex or 0>/<content type hex>/<file name>/
+// (the profile's saved games in <saves>/<file name>/ instead when hc09.ini [game] saves is set: g_vfsSaves)
 // and XamContentCreateEx mounts that directory as the requested drive
 // ("save:\..." etc.) in the VFS. A sidecar "<file name>.name" keeps the
 // display name for enumeration.
@@ -63,12 +64,14 @@ std::string Hex(uint64_t v, int w) { char b[24]; snprintf(b, sizeof(b), "%0*llX"
 void MkdirP(const std::string& path)
 {
     std::error_code ec;
-    fs::create_directories(path, ec);
+    fs::create_directories(HostPath(path), ec);
 }
 
 std::string TypeDir(uint32_t user, uint32_t contentType)
 {
     uint64_t xuid = (user < 4) ? kXuid : 0;
+    // The profile's saved games (XCONTENTTYPE_SAVEDGAME) in their own folder when one is set (runtime.cpp g_vfsSaves).
+    if (!g_vfsSaves.empty() && xuid == kXuid && contentType == 1) return g_vfsSaves;
     return g_vfsCache + "/content/" + Hex(xuid, 16) + "/" + Hex(contentType, 8);
 }
 
@@ -159,15 +162,15 @@ PPC_FUNC(__imp__XamContentCreateEnumerator)
     {
         std::string dir = TypeDir(user, type);
         std::error_code ec;
-        fs::directory_iterator it(dir, ec), end;
+        fs::directory_iterator it(HostPath(dir), ec), end;
         if (!ec)
         {
             for (; it != end; it.increment(ec))
             {
-                std::string n = it->path().filename().string();
+                std::string n = HostUtf8(it->path().filename());
                 if (!it->is_directory(ec)) continue;
                 ContentData c{ kDeviceId, type, n, n };
-                if (FILE* f = fopen((dir + "/" + n + ".name").c_str(), "rb"))
+                if (FILE* f = HostFopen(dir + "/" + n + ".name", "rb"))
                 {
                     char buf[256] = {}; size_t r = fread(buf, 1, sizeof(buf) - 1, f); fclose(f);
                     c.display.assign(buf, r);
@@ -224,7 +227,7 @@ PPC_FUNC(__imp__XamContentCreateEx)
     ContentData c = ReadContentData(ctx.r5.u32);
     std::string dir = TypeDir(user, c.type) + "/" + c.file;
     std::error_code ec;
-    bool exists = fs::is_directory(dir, ec);
+    bool exists = fs::is_directory(HostPath(dir), ec);
     uint32_t mode = flags & 0xFF, result = ERROR_SUCCESS, disposition = exists ? 2 : 1;   // 1 created, 2 opened
     if (mode == 1 && exists) result = ERROR_ALREADY_EXISTS;
     else if ((mode == 3 || mode == 5) && !exists) result = ERROR_PATH_NOT_FOUND;
@@ -232,7 +235,7 @@ PPC_FUNC(__imp__XamContentCreateEx)
     {
         if (!exists) MkdirP(dir);
         if (!c.display.empty())
-            if (FILE* f = fopen((dir + ".name").c_str(), "wb")) { fwrite(c.display.data(), 1, c.display.size(), f); fclose(f); }
+            if (FILE* f = HostFopen(dir + ".name", "wb")) { fwrite(c.display.data(), 1, c.display.size(), f); fclose(f); }
         VfsMount(root, dir);
     }
     fprintf(stderr, "[content] XamContentCreateEx(user %u, \"%s\", type 0x%X, \"%s\" / \"%s\", flags 0x%X) -> %s, result 0x%X\n",

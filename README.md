@@ -5,8 +5,8 @@ up to 4K and 240 fps, Xbox and PlayStation controllers, both game versions (1.0 
 PlayStation 3 careers brought over.
 
 It is a fan project, not made, endorsed or supported by Electronic Arts, the NFL or the NFL Players Association.
-**No game files come with it**: you need your own copy of the Xbox 360 game, and the setup program builds the PC
-version from it.
+You need your own copy of the Xbox 360 game, and the setup program builds the PC version from it. The only game file
+in the download is the game's Title Update #2, so both game versions install without you looking for it.
 
 ---
 
@@ -15,7 +15,7 @@ version from it.
 | | |
 |---|---|
 | **The game** | NFL Head Coach 09 for **Xbox 360, US version**, copied from your own disc: `default.xex` and the five `qkl_*.ast` files (about 5.4 GB) in one folder |
-| **Title update** (optional) | Title Update #2 (game version **1.2**) from your own Xbox 360: the `TU_12K2221_0000004000000.00000000000G1` file, or the `default.xexp` inside it |
+| **Title update** | nothing to do: Title Update #2 (game version **1.2**) is included. You may still give your own copy (`TU_12K2221_0000004000000.00000000000G1` or the `default.xexp` inside it) |
 | **Windows** | Windows 10 or 11, 64-bit |
 | **Processor** | with AVX2: Intel Core 4th generation (2013) or newer, AMD Ryzen or newer |
 | **Graphics** | Vulkan 1.3 with a current driver: NVIDIA GTX 900 series, AMD RX 400 series, Intel UHD 600 or newer |
@@ -24,9 +24,8 @@ version from it.
 The PS3 version of the game does **not** work as the source: the PC version is built from the Xbox 360 game. PS3
 players can still bring their careers over (see [PlayStation 3 players](#playstation-3-players)).
 
-This project does not provide game files or links to them. Copy them from your own disc and console: with a modified
-Xbox 360, copy the game's folder to a USB drive; with a PC disc drive that reads Xbox 360 discs, make an image of the
-disc. The title update is on your console's storage once the console has downloaded it.
+This project does not provide the game or links to it. Copy it from your own disc: with a modified Xbox 360, copy
+the game's folder to a USB drive; with a PC disc drive that reads Xbox 360 discs, make an image of the disc.
 
 ## Installing
 
@@ -35,7 +34,7 @@ disc. The title update is on your console's storage once the console has downloa
    *More info* > *Run anyway*.
 3. **Your game**: press **Folder...** and choose the folder with `default.xex` and the five `qkl_*.ast` files.
    (A disc image `.iso` also works, but that is in beta: if it fails, use the folder.)
-4. **Title update** (optional): choose your title update file to get game version 1.2 as well.
+4. **Title update**: leave it empty to use the included one (game version 1.2 is installed beside 1.0).
 5. **Install to**: the default needs no administrator rights. Press **Install**.
 
 Setup checks your files against the US retail game and builds the game for your PC: a few minutes per game version
@@ -55,7 +54,8 @@ If some of your game files differ from the retail ones (modified files), setup n
   fullscreen while playing.
 - **Controls**: which controller to use, Xbox or PlayStation button icons, keyboard on/off, sound, and a test panel
   that shows your controller's buttons and sticks live.
-- **Saves**: shared saves for both game versions, copying saves between them, and PS3 (RPCS3) save import/export.
+- **Saves**: shared saves for both game versions, copying saves between them, **Open saves folder** (one folder per
+  save; saves from the Xenia emulator can be copied in), and PS3 (RPCS3) save import/export.
 - **Profile** (top): save named sets of display, sound and controller settings ("TV", "Laptop") and switch between them.
 
 ### Controllers
@@ -71,18 +71,21 @@ If some of your game files differ from the retail ones (modified files), setup n
 
 ## Where your saves are
 
-Everything is in the install folder (by default `%LOCALAPPDATA%\Programs\NFL Head Coach 09`):
+In your Documents folder (*Saves* > **Open saves folder** in the launcher opens it):
 
 | Game version | Saves folder |
 |---|---|
-| 1.0 | `hc09-cache\content\E000C0AC4E000009\00000001\` |
-| 1.2 | `hc09-cache-v12\content\E000C0AC4E000009\00000001\` |
-| both, with *Both versions use the same saves* on | `hc09-cache\content\E000C0AC4E000009\00000001\` |
+| 1.0 | `Documents\NFL Head Coach 09\Saves\1.0\` |
+| 1.2 | `Documents\NFL Head Coach 09\Saves\1.2\` |
+| both, with *Both versions use the same saves* on | `Documents\NFL Head Coach 09\Saves\1.0\` |
 
 Each save is a folder of its own name (`CAREER-<name>`, `ROSTER-<name>`, `PROFILE-HeadCoach`) holding one file of the
-same name, plus a `<name>.name` file beside it. To back up your saves, copy the `hc09-cache` folders. To move them to
-another PC, copy them into the install folder there. Saves work in both game versions (*Saves* > *Copy saves*). When
-the launcher replaces a save it puts the old one in `content-backup` first.
+same name, plus a `<name>.name` file beside it. To back up your saves or move them to another PC, copy the
+`NFL Head Coach 09` folder. Saves from the Xenia emulator have the same layout: with the game closed, copy the save
+folders from Xenia's `content\...\45410841\00000001` folder in. Saves work in both game versions (*Saves* >
+*Copy saves*). When the launcher replaces a save it puts the old one in `Saves\Backups` first. An install made before
+this keeps its saves in the install folder's `hc09-cache` folders until you run the new setup over it, which moves
+them here (the old copy stays as `content-moved-to-Documents`).
 
 ## PlayStation 3 players
 
@@ -104,7 +107,8 @@ PlayStation controllers: see [Controllers](#controllers). The game can show Play
 ## Warnings and limitations
 
 - **US Xbox 360 version only.** Other regions and the PS3 game cannot be used to build it.
-- **No game files are included**, and none are provided here or linked to.
+- **The game is not included**, and is not provided here or linked to. The one game file in the release download is
+  Title Update #2 (1.2 MB, Electronic Arts' file, unchanged), which is useless without the game.
 - Installing from a **disc image (.iso) is in beta**; installing from the game's folder is the tested way.
 - **Xbox LIVE** features do not work.
 - The Colts' stadium screen (jumbotron) shows a blank panel: the art is missing in the game's own files.
@@ -125,13 +129,15 @@ PlayStation controllers: see [Controllers](#controllers). The game can show Play
 ## Updating and uninstalling
 
 - **Update**: run the new `HC09Setup.exe` and install into the same folder; saves and settings stay.
-- **Uninstall**: Windows *Settings* > *Apps* > *NFL Head Coach 09 for PC*. It asks whether to keep your saves.
+- **Uninstall**: Windows *Settings* > *Apps* > *NFL Head Coach 09 for PC*. It asks whether to keep your saves (kept:
+  `Documents\NFL Head Coach 09` stays).
 
 ## Legal
 
 NFL Head Coach 09 is a trademark of Electronic Arts. NFL and the NFL shield design are registered trademarks of the
 National Football League. Team names, logos and player likenesses belong to their owners. This project contains none
-of them and none of the game's code or data: the game is built on your PC from your own copy. Third-party software:
+of them and none of the game's code or data, except that the release download includes the game's Title Update #2
+(Electronic Arts' file, unchanged): the game is built on your PC from your own copy. Third-party software:
 see [release/THIRD-PARTY-NOTICES.txt](release/THIRD-PARTY-NOTICES.txt).
 
 Developers: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).

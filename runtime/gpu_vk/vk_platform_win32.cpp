@@ -110,9 +110,14 @@ Window* WindowCreate(const char* title, uint32_t width, uint32_t height, bool sh
         wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));   // IDC_ARROW
         wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
         wc.lpszClassName = kClass;
-        // The exe's icon (resource 1, CMakeLists.txt res/hc09.ico); none: Windows' default.
-        wc.hIcon = LoadIconW(inst, MAKEINTRESOURCEW(1));
-        wc.hIconSm = static_cast<HICON>(LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+        // The icon (resource 1, CMakeLists.txt res/hc09-release.ico or res/hc09.ico): the exe's, else this module's
+        // (hc09rt.dll in the split build: the player-built hc09.exe has none); none: Windows' default.
+        HINSTANCE iconMod = inst;
+        if (!FindResourceW(inst, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(14)))   // RT_GROUP_ICON
+            GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(&WindowCreate), &iconMod);
+        wc.hIcon = LoadIconW(iconMod, MAKEINTRESOURCEW(1));
+        wc.hIconSm = static_cast<HICON>(LoadImageW(iconMod, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
                                                    GetSystemMetrics(SM_CYSMICON), 0));
         if (!RegisterClassExW(&wc)) return nullptr;
         registered = true;

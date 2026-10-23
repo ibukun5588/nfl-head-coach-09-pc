@@ -1,9 +1,11 @@
 // HC09Setup.exe: installs NFL Head Coach 09 for PC from the player's own Xbox 360 game (docs/HANDOFF_M11.md step 4).
-// Nothing of the game comes with it: the player points it at their disc image (read in place) or the folder with
-// their default.xex and qkl_*.ast files, and optionally their title update; it checks them against the US retail
+// Of the game, only the 1.2 title update package comes with it (kit\title_update, used when the player gives none):
+// the player points it at their disc image (read in place) or the folder with their default.xex and qkl_*.ast files,
+// and optionally their own title update; it checks them against the US retail
 // hashes, builds hc09.exe for 1.0 (and 1.2) on this PC with the kit beside it (kit\hc09-build.exe: our tools only),
 // installs the launcher, writes hc09.ini and makes the game images. Running it again updates an install and keeps
-// the saves (hc09-cache*) and settings.
+// the saves and settings. The saves are in Documents\NFL Head Coach 09\Saves (an older install's are moved there:
+// SavesToDocuments).
 //
 //   HC09Setup.exe                                   the window
 //   HC09Setup.exe --source <disc image or folder> --dest <install folder> [--tu <title update>] [--yes]
@@ -12,6 +14,8 @@
 //
 // Decisions (2026-10-23): archives that differ from retail are a warning the player may continue past (named by
 // file only: the installer recognises no particular mod); both game versions are built when the update is given.
+// 2026-10-23: the release includes the title update, so both versions are built by default; without it in the
+// kit (taken down on request) the player's own file is used as before.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -47,6 +51,7 @@ namespace {
 constexpr const char* kXex10 = "24CFB63D2A8924FCC9B7AEE162B0ADCAC4140C05312876CBD3AB5107CB07243F";
 constexpr const char* kTuPackage = "43B31C2B51E9797C6CAF02377D84203E963B977504B30B175382A4D1E17C44F2";
 constexpr const char* kTuXexp = "A789D7238A58A11F71E8012345B26EC9B1F5B7B25705A6F036424EF8F0E5C043";
+const wchar_t kBundledTu[] = L"title_update\\TU_12K2221_0000004000000.00000000000G1";   // in the kit (make_kit.py --tu)
 struct Archive { const char* name; uint64_t size; const char* sha256; };
 constexpr Archive kArchives[] = {
     { "qkl_boot.ast", 487625248ull, "F0674B39A2724E5FB1FE71C4D4DE3D75547939B703B505631714509483584A9F" },
@@ -414,6 +419,8 @@ private:
             if (!ui.confirm(m)) return Fail("stopped: game archives differ from retail");
             ui.log("continuing with archives that differ from retail (the player's choice)");
         }
+        bool bundled = tu.empty() && fs::exists(kit / kBundledTu);
+        if (bundled) tu = kit / kBundledTu;
         bool v12 = !tu.empty();
         if (v12)
         {
@@ -425,7 +432,7 @@ private:
             std::string t = th.Hex();
             if (t != kTuPackage && t != kTuXexp)
                 return Fail("the title update is not NFL Head Coach 09 Title Update #2 for Xbox 360 (the 1.2 update)");
-            ui.log("title update: Title Update #2 (game version 1.2), OK");
+            ui.log(std::string("title update: Title Update #2 (game version 1.2), OK") + (bundled ? " (included with the installer)" : ""));
         }
 
         // 2. Room on the disk.
@@ -537,6 +544,7 @@ private:
         fs::path ini = dest / L"hc09.ini";
         IniSet(ini, "game", "root", Narrow(root.wstring()));
         if (v12) IniSet(ini, "game", "title_update", Narrow(tu.wstring()));
+        if (IniGet(ini, "game", "saves").empty()) SavesToDocuments(ini);
         // First install: the launcher's defaults, so hc09.exe shows the game even when started without the launcher
         // (settings the player has chosen are never changed): 60 fps by default.
         for (auto [sec, key, val] : { std::tuple{ "display", "live", "on" }, std::tuple{ "display", "renderer", "native" },
@@ -564,6 +572,54 @@ private:
         return false;
     }
     void Step(double f, const std::string& s) { ui.progress(std::clamp(f, 0.0, 1.0), s); }
+
+    // The saves go to Documents\NFL Head Coach 09\Saves\1.0 and \1.2 (2026-10-23; hc09.ini [game] saves, read by
+    // the game and the launcher). An older install's saves (<dest>\hc09-cache*\content\E000C0AC4E000009\00000001) are
+    // copied there first; only when every copy worked is the setting written and the old content folder renamed to
+    // content-moved-to-Documents (kept as a backup). Nothing in Documents is replaced. If something fails, the saves
+    // stay where they were and the game keeps using them there.
+    void SavesToDocuments(const fs::path& ini)
+    {
+        PWSTR docs = nullptr;
+        if (FAILED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &docs)))
+        {
+            ui.log("saves: no Documents folder found; they stay in the install folder");
+            return;
+        }
+        fs::path base = fs::path(docs) / L"NFL Head Coach 09" / L"Saves";
+        CoTaskMemFree(docs);
+        std::error_code ec;
+        fs::create_directories(base, ec);
+        if (ec) { ui.log("saves: cannot create " + Narrow(base.wstring()) + "; they stay in the install folder"); return; }
+        std::vector<fs::path> moved;
+        for (auto [cache, sub] : { std::pair{ L"hc09-cache", L"1.0" }, std::pair{ L"hc09-cache-v12", L"1.2" } })
+        {
+            fs::path old = dest / cache / L"content" / L"E000C0AC4E000009" / L"00000001", now = base / sub;
+            if (!fs::is_directory(old) || fs::is_empty(old, ec)) continue;
+            if (fs::is_directory(now) && !fs::is_empty(now, ec))
+            {
+                ui.log("saves of " + Narrow(sub) + ": " + Narrow(now.wstring()) + " already has saves; the ones in " +
+                       Narrow(old.wstring()) + " are left there");
+                continue;
+            }
+            fs::create_directories(now, ec);
+            fs::copy(old, now, fs::copy_options::recursive, ec);
+            if (ec)
+            {
+                ui.log("saves of " + Narrow(sub) + ": copying to Documents failed (" + ec.message() + "); they stay in the install folder");
+                return;
+            }
+            moved.push_back(dest / cache);
+            ui.log("saves of " + Narrow(sub) + " copied to " + Narrow(now.wstring()));
+        }
+        IniSet(ini, "game", "saves", Narrow(base.wstring()));
+        for (const fs::path& c : moved)
+        {
+            fs::rename(c / L"content", c / L"content-moved-to-Documents", ec);
+            if (!ec) ui.log("  the old copy is kept in " + Narrow((c / L"content-moved-to-Documents").wstring()));
+        }
+        ui.log("saves folder: " + Narrow(base.wstring()));
+    }
 
     // A tool's output line by line; true when it exits with 0.
     bool RunTool(const std::vector<std::wstring>& args, const std::function<void(const std::string&)>& onLine)
@@ -913,13 +969,15 @@ int RunWindow(HINSTANCE inst)
                           r.right - r.left, r.bottom - r.top, nullptr, nullptr, inst, nullptr);
 
     Add(L"STATIC", L"NFL Head Coach 09 for PC", 0, 20, 14, 600, 28, 0, g.bold);
-    Add(L"STATIC", L"Builds the game on this PC from your own Xbox 360 copy (US); no game files come with it. Choose "
-                   L"the folder of your dump: default.xex and the five qkl_*.ast files.", 0, 20, 46, 600, 40, 0);
+    Add(L"STATIC", L"Builds the game on this PC from your own Xbox 360 copy (US). Choose the folder of your dump: "
+                   L"default.xex and the five qkl_*.ast files.", 0, 20, 46, 600, 40, 0);
     Add(L"STATIC", L"Your game (the folder of your dump; a disc image is in beta):", 0, 20, 96, 600, 20, 0);
     Add(L"EDIT", L"", ES_AUTOHSCROLL | WS_TABSTOP, 20, 118, 372, 26, kSource);
     Add(L"BUTTON", L"Folder...", WS_TABSTOP, 400, 118, 92, 26, kFolderBtn);
     Add(L"BUTTON", L"ISO (beta)...", WS_TABSTOP, 498, 118, 122, 26, kImageBtn);
-    Add(L"STATIC", L"Title update (optional; adds game version 1.2): the TU file from your console's drive", 0, 20, 154, 600, 20, 0);
+    Add(L"STATIC", fs::exists(ExeDir() / L"kit" / kBundledTu)
+                       ? L"Title update: included, game version 1.2 is installed beside 1.0 (or choose your own copy)"
+                       : L"Title update (optional; adds game version 1.2): the TU file from your console's drive", 0, 20, 154, 600, 20, 0);
     Add(L"EDIT", L"", ES_AUTOHSCROLL | WS_TABSTOP, 20, 176, 500, 26, kTu);
     Add(L"BUTTON", L"Browse...", WS_TABSTOP, 526, 176, 94, 26, kTuBtn);
     Add(L"STATIC", L"Install to:", 0, 20, 212, 600, 20, 0);
@@ -949,7 +1007,8 @@ int RunWindow(HINSTANCE inst)
 
 // ---- uninstalling (Apps & features runs "<install>\kit\HC09Setup.exe --uninstall <install>") ----------------------------
 // It runs from a copy in %TEMP% (the install folder holds the running setup), asks whether to keep the saves, then
-// removes the install folder (saves kept: the hc09-cache* folders stay), the shortcuts and the registration.
+// removes the install folder, the shortcuts and the registration. Saves kept: the Documents folder ([game] saves) is
+// left alone (an older install: its hc09-cache* folders stay); deleted: its 1.0, 1.2 and Backups folders go too.
 //   --keep-saves / --delete-saves: no question (unattended).
 int Uninstall(int argc, wchar_t** argv)
 {
@@ -986,11 +1045,14 @@ int Uninstall(int argc, wchar_t** argv)
     }
     if (parent)
         if (HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, parent)) { WaitForSingleObject(h, 30000); CloseHandle(h); }
+    // The saves: in Documents (hc09.ini [game] saves, set by setup) or, in an older install, in the hc09-cache folders.
+    fs::path savesDir = Widen(IniGet(dest / L"hc09.ini", "game", "saves"));
+    std::wstring where = savesDir.empty() ? L"in the hc09-cache folders in " + dest.wstring() : L"in " + savesDir.wstring();
     if (!saves)
     {
         TASKDIALOG_BUTTON buttons[] = { { 100, L"Uninstall, keep my saves" }, { 101, L"Uninstall and delete my saves too" } };
-        std::wstring text = L"Remove NFL Head Coach 09 for PC from " + dest.wstring() + L"?\n\nYour careers, rosters and profile are "
-                            L"in the hc09-cache folders there. Keep them to install again later.";
+        std::wstring text = L"Remove NFL Head Coach 09 for PC from " + dest.wstring() + L"?\n\nYour careers, rosters and profile are " +
+                            where + L". Keep them to install again later.";
         TASKDIALOGCONFIG c{ sizeof c };
         c.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_USE_COMMAND_LINKS;
         c.dwCommonButtons = TDCBF_CANCEL_BUTTON;
@@ -1011,11 +1073,18 @@ int Uninstall(int argc, wchar_t** argv)
         std::wstring n = e.path().filename().wstring();
         std::wstring low = n;
         for (wchar_t& ch : low) ch = wchar_t(towlower(ch));
-        if (saves == 1 && low.rfind(L"hc09-cache", 0) == 0) continue;
+        if (saves == 1 && savesDir.empty() && low.rfind(L"hc09-cache", 0) == 0) continue;
         fs::remove_all(e.path(), ec);
         if (ec) left.push_back(n);
     }
-    if (saves == 2) fs::remove(dest, ec);
+    if (saves == 2 || !savesDir.empty()) fs::remove(dest, ec);
+    if (saves == 2 && !savesDir.empty())
+    {
+        // Only what the game and launcher make there; the folders above go only when empty.
+        for (const wchar_t* sub : { L"1.0", L"1.2", L"Backups" }) fs::remove_all(savesDir / sub, ec);
+        fs::remove(savesDir, ec);
+        fs::remove(savesDir.parent_path(), ec);
+    }
     for (int where : { CSIDL_DESKTOPDIRECTORY, CSIDL_PROGRAMS })
     {
         wchar_t dir[MAX_PATH];
@@ -1023,7 +1092,7 @@ int Uninstall(int argc, wchar_t** argv)
     }
     RegDeleteKeyW(HKEY_CURRENT_USER, kUninstallKey);
     std::wstring done = L"NFL Head Coach 09 for PC was removed.";
-    if (saves == 1) done += L"\n\nYour saves are still in " + dest.wstring() + L" (the hc09-cache folders).";
+    if (saves == 1) done += L"\n\nYour saves are still " + where + L".";
     if (!left.empty()) done += L"\n\nSome files were in use and stay: close the game and delete " + dest.wstring() + L" by hand.";
     bool quiet = false;
     for (int i = 1; i < argc; ++i) quiet = quiet || !wcscmp(argv[i], L"--keep-saves") || !wcscmp(argv[i], L"--delete-saves");

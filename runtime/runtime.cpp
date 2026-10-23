@@ -19,6 +19,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <shellapi.h>   // CommandLineToArgvW
 #include <timeapi.h>
 #else
 #include <sys/mman.h>
@@ -200,7 +201,7 @@ uint32_t PhysicalAlloc(uint32_t size, uint32_t align)
 
 static void LoadImage(const char* path)
 {
-    FILE* f = fopen(path, "rb");
+    FILE* f = HostFopen(path, "rb");
     if (!f) { fprintf(stderr, "[runtime] cannot open image %s\n", path); exit(1); }
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
@@ -1138,6 +1139,25 @@ int main(int argc, char** argv)
 {
     fprintf(stderr, "[runtime] hc09 build %s\n", HC09_BUILD_ID);
     CheckCpu();
+#if !HC09_SPLIT && defined(_WIN32)
+    // The command line in UTF-8, like every path in the runtime (HostPath, imports_io.cpp; the split build's
+    // split_dll.cpp does the same): the CRT's argv is in the ANSI code page.
+    std::vector<std::string> u8args;
+    std::vector<char*> u8argv;
+    if (wchar_t** w = CommandLineToArgvW(GetCommandLineW(), &argc))
+    {
+        for (int i = 0; i < argc; ++i)
+        {
+            int n = WideCharToMultiByte(CP_UTF8, 0, w[i], -1, nullptr, 0, nullptr, nullptr);
+            u8args.emplace_back(size_t(n > 0 ? n - 1 : 0), '\0');
+            if (n > 1) WideCharToMultiByte(CP_UTF8, 0, w[i], -1, u8args.back().data(), n, nullptr, nullptr);
+        }
+        LocalFree(w);
+        for (auto& a : u8args) u8argv.push_back(a.data());
+        u8argv.push_back(nullptr);
+        argv = u8argv.data();
+    }
+#endif
     // Usage: hc09 [<image.basefile>] [--root <game-files-dir>]; hc09.ini fills in the rest.
     const char* image = nullptr;
     for (int i = 1; i < argc; ++i)
@@ -1164,8 +1184,19 @@ int main(int argc, char** argv)
         setenv("HC09_CACHE_DIR", g_vfsCache.c_str(), 1);
 #endif
     }
-    { std::error_code ec; std::filesystem::create_directories(g_vfsCache, ec); }
+    { std::error_code ec; std::filesystem::create_directories(HostPath(g_vfsCache), ec); }
     fprintf(stderr, "[runtime] cache volume: %s\n", g_vfsCache.c_str());
+    // The saved games' own folder (hc09.ini [game] saves; installs: Documents\NFL Head Coach 09\Saves, 2026-10-23):
+    // <saves>/1.0 or /1.2 by the cache folder (hc09-cache: 1.0, also when both versions share saves; hc09-cache-v12:
+    // 1.2). Any characters work (UTF-8 here, HostPath).
+    if (const char* s = Hc09Env("HC09_SAVES_DIR"); s && *s)
+    {
+        std::string leaf = HostUtf8(HostPath(g_vfsCache).filename());
+        g_vfsSaves = std::string(s) + "/" + (leaf == "hc09-cache" ? "1.0" : leaf == "hc09-cache-v12" ? "1.2" : leaf);
+        std::error_code ec;
+        std::filesystem::create_directories(HostPath(g_vfsSaves), ec);
+        fprintf(stderr, "[runtime] saves: %s%s\n", g_vfsSaves.c_str(), ec ? " (cannot create it)" : "");
+    }
 
 #ifdef _WIN32
     SetConsoleCtrlHandler(OnConsoleCtrl, TRUE);

@@ -48,16 +48,16 @@ extern "C" __declspec(dllexport) int Hc09RtRun(const Hc09GameTable* game)
         exit(1);
     }
     g_game = game;
-    // The command line as the CRT's narrow argv would have it.
+    // The command line in UTF-8, like every path in the runtime (HostPath, imports_io.cpp).
     int argc = 0;
     wchar_t** wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
     std::vector<std::string> args(size_t(argc > 0 ? argc : 0));
     std::vector<char*> argv;
     for (int i = 0; i < argc; ++i)
     {
-        int n = WideCharToMultiByte(CP_ACP, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
+        int n = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
         args[i].resize(size_t(n > 0 ? n - 1 : 0));
-        if (n > 1) WideCharToMultiByte(CP_ACP, 0, wargv[i], -1, args[i].data(), n, nullptr, nullptr);
+        if (n > 1) WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, args[i].data(), n, nullptr, nullptr);
         argv.push_back(args[i].data());
     }
     argv.push_back(nullptr);

@@ -51,3 +51,8 @@ tools/__pycache__/
 
 # crash reports the runtime writes (runtime/crash_report.h)
 /crash-reports/
+
+# Game files never go into git (the release zip carries the title update: tools/make_kit.py --tu)
+TU_*
+*.xexp
+*.xcp

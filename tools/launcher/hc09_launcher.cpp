@@ -290,7 +290,7 @@ enum : int
     kRoot = 100, kBrowse, kFilesStatus, kRenderer, kScale, kMsaa, kRate, kVsync, kFullscreen, kSound, kVolume, kInput,
     kPlay, kSave, kQuit, kStatus, kOpenLog, kVersion, kTu, kTuBrowse, kTuStatus, kShareSaves, kCopySaves,
     kTabs, kProfile, kProfileSave, kProfileDelete, kPad, kGlyphs, kPadPanel, kPs3Import, kPs3Export, kExportPick, kSavesInfo,
-    kUpdateCheck,
+    kUpdateCheck, kOpenSaves,
 };
 constexpr UINT kUpdateFound = WM_APP + 2;
 enum Page : int { kPageGame, kPageDisplay, kPageControls, kPageSaves, kPageCount };
@@ -394,7 +394,29 @@ const Version* Other(const Version& v)
     for (const Version& o : g.versions) if (strcmp(o.name, v.name)) return &o;
     return nullptr;
 }
-std::wstring SavesDir(const Version& v) { return g.dir + L"\\" + Widen(v.cache) + L"\\content"; }
+// Where the saves of a cache folder (hc09-cache: 1.0, hc09-cache-v12: 1.2) are, as the game finds them (runtime.cpp):
+// with hc09.ini [game] saves (installs: Documents\NFL Head Coach 09\Saves, 2026-10-23) <saves>\1.0 or \1.2, one
+// folder per save; without it (development builds, portable folders) <cache>\content\E000C0AC4E000009\00000001.
+std::wstring SavesBase()
+{
+    std::string b = g.ini.Get("game", "saves", "");
+    if (b.empty()) return L"";
+    std::filesystem::path p(Widen(b));
+    return (p.is_relative() ? std::filesystem::path(g.dir) / p : p).wstring();
+}
+std::wstring SaveFolderOf(const std::wstring& cache)
+{
+    std::wstring base = SavesBase();
+    if (base.empty()) return PortSaveDir(g.dir + L"\\" + cache);
+    return base + L"\\" + (cache == L"hc09-cache" ? L"1.0" : cache == L"hc09-cache-v12" ? L"1.2" : cache);
+}
+// Where saves that are replaced (Copy saves, a PS3 import) are kept first.
+std::wstring BackupFolderOf(const std::wstring& cache)
+{
+    std::wstring base = SavesBase();
+    return base.empty() ? g.dir + L"\\" + cache + L"\\content-backup" : base + L"\\Backups";
+}
+std::wstring SavesDir(const Version& v) { return SaveFolderOf(Widen(v.cache)); }
 bool DirExists(const std::wstring& p)
 {
     DWORD a = GetFileAttributesW(p.c_str());
@@ -412,7 +434,7 @@ void RefreshFiles()
     std::wstring tu = GetText(kTu), tuMsg;
     if (v12)
     {
-        if (FileExists(VerDir(v) + L"\\headcoach.basefile")) tuMsg = L"The 1.2 game image is ready (made from your title update).";
+        if (FileExists(VerDir(v) + L"\\headcoach.basefile")) tuMsg = L"The 1.2 game image is ready (made from the title update).";
         else if (FileExists(tu)) tuMsg = L"Title update found: it is applied to your default.xex when you press Play.";
         else { tuMsg = L"Choose your Xbox 360 title update: the TU_... file (title update #2) or its default.xexp."; ok = false; }
     }
@@ -428,8 +450,8 @@ void RefreshFiles()
     EnableWindow(g.Ctl(kPlay), ok && !g.running);
 }
 
-// "Copy saves from <other version>": its hc09-cache*\content over this version's (which is moved to
-// content-backup\<date time> first). Saves work across versions (2026-10-22).
+// "Copy saves from <other version>": its saves over this version's (which are moved to the backups folder,
+// <date time>-<version>, first). Saves work across versions (2026-10-22).
 void CopySaves()
 {
     const Version& v = Cur();
@@ -438,7 +460,8 @@ void CopySaves()
     std::wstring src = SavesDir(*o), dst = SavesDir(v);
     std::wstring q = L"Copy the saves of game version " + Widen(o->name) + L" (careers, rosters, profile) to version " +
                      Widen(v.name) + L"?\n\nFrom: " + src + L"\nTo: " + dst;
-    if (DirExists(dst)) q += L"\n\nThe saves now in " + Widen(v.cache) + L" are moved to " + Widen(v.cache) + L"\\content-backup first.";
+    std::wstring backups = BackupFolderOf(Widen(v.cache));
+    if (DirExists(dst)) q += L"\n\nThe saves of version " + Widen(v.name) + L" are moved to " + backups + L" first.";
     if (MessageBoxW(g.wnd, q.c_str(), L"HC09", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     namespace fs = std::filesystem;
     std::error_code ec;
@@ -448,7 +471,7 @@ void CopySaves()
         GetLocalTime(&t);
         wchar_t stamp[32];
         swprintf(stamp, 32, L"%04u%02u%02u-%02u%02u%02u", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
-        fs::path bak = fs::path(g.dir) / Widen(v.cache) / L"content-backup" / stamp;
+        fs::path bak = fs::path(backups) / (std::wstring(stamp) + L"-" + Widen(v.name));
         fs::create_directories(bak.parent_path(), ec);
         fs::rename(dst, bak, ec);
         if (ec) { MessageBoxW(g.wnd, (L"Could not move the old saves aside: " + Widen(ec.message())).c_str(), L"HC09", MB_ICONERROR); return; }
@@ -641,12 +664,15 @@ void PadsStart()
 }
 
 // ---- the Saves tab: PS3 (RPCS3) saves ----
-std::wstring CacheDir(const Version& v) { return g.dir + L"\\" + (Checked(kShareSaves) ? L"hc09-cache" : Widen(v.cache)); }
+// The cache folder a version plays with (shared saves: both use 1.0's), and so its saves and backups folders.
+std::wstring CacheName(const Version& v) { return Checked(kShareSaves) ? L"hc09-cache" : Widen(v.cache); }
+std::wstring SaveDir(const Version& v) { return SaveFolderOf(CacheName(v)); }
+std::wstring BackupDir(const Version& v) { return BackupFolderOf(CacheName(v)); }
 void FillExportList()
 {
     HWND c = g.Ctl(kExportPick);
     SendMessageW(c, CB_RESETCONTENT, 0, 0);
-    for (const std::wstring& n : PortListSaves(CacheDir(Cur()))) SendMessageW(c, CB_ADDSTRING, 0, LPARAM(n.c_str()));
+    for (const std::wstring& n : PortListSaves(SaveDir(Cur()))) SendMessageW(c, CB_ADDSTRING, 0, LPARAM(n.c_str()));
     Select(kExportPick, 0);
 }
 std::wstring PickFolder(const wchar_t* title, const std::wstring& start)
@@ -680,24 +706,24 @@ void ImportPs3Saves()
     if (folder.empty()) return;
     std::vector<Ps3SaveInfo> saves = Ps3ListSaves(folder);
     if (saves.empty()) { SetWindowTextW(g.Ctl(kSavesInfo), L"No NFL Head Coach 09 (BLUS30128) saves in that folder."); return; }
-    std::wstring cache = CacheDir(Cur()), log, msg;
+    std::wstring dir = SaveDir(Cur()), backups = BackupDir(Cur()), log, msg;
     bool replace = false, asked = false;
     int imported = 0;
     for (const Ps3SaveInfo& s : saves)
     {
-        Ps3Import r = Ps3ImportSave(s, cache, replace, msg);
+        Ps3Import r = Ps3ImportSave(s, dir, backups, replace, msg);
         if (r == Ps3Import::Exists && !asked)
         {
             asked = true;
-            replace = MessageBoxW(g.wnd, L"Some of these saves are already in the game. Replace them with the PS3 ones? "
-                                         L"(The ones replaced are backed up to content-backup first.)",
-                                  L"HC09", MB_YESNO | MB_ICONQUESTION) == IDYES;
-            if (replace) r = Ps3ImportSave(s, cache, true, msg);
+            std::wstring q = L"Some of these saves are already in the game. Replace them with the PS3 ones? "
+                             L"(The ones replaced are backed up first, to " + backups + L".)";
+            replace = MessageBoxW(g.wnd, q.c_str(), L"HC09", MB_YESNO | MB_ICONQUESTION) == IDYES;
+            if (replace) r = Ps3ImportSave(s, dir, backups, true, msg);
         }
         if (r == Ps3Import::Imported) ++imported;
         log += msg + L"\r\n";
     }
-    SetWindowTextW(g.Ctl(kSavesInfo), (std::to_wstring(imported) + L" save(s) imported into " + cache + L":\r\n" + log).c_str());
+    SetWindowTextW(g.Ctl(kSavesInfo), (std::to_wstring(imported) + L" save(s) imported into " + dir + L":\r\n" + log).c_str());
     FillExportList();
 }
 void ExportPs3Save()
@@ -717,8 +743,22 @@ void ExportPs3Save()
         return;
     }
     std::wstring msg;
-    bool ok = Ps3ExportSave(CacheDir(Cur()), name, out, templ, msg);
+    bool ok = Ps3ExportSave(SaveDir(Cur()), name, out, templ, msg);
     SetWindowTextW(g.Ctl(kSavesInfo), ((ok ? L"Exported: " : L"Not exported: ") + msg).c_str());
+}
+
+// "Open saves folder": this version's save folder in Explorer (made if the game has not saved yet), so players can back
+// up saves or drop in ones from Xenia (the same one-folder-per-save layout; 2026-10-23).
+void OpenSavesFolder()
+{
+    std::wstring dir = SaveDir(Cur());
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    ShellExecuteW(g.wnd, L"explore", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    std::wstring which = Checked(kShareSaves) && Other(Cur()) ? L"both game versions" : L"game version " + Widen(Cur().name);
+    SetWindowTextW(g.Ctl(kSavesInfo), (L"Saves of " + which + L":\r\n" + dir +
+                                       L"\r\n\r\nFrom Xenia: copy the save folders from Xenia's content\\...\\45410841\\00000001 "
+                                       L"folder into this one (with the game closed).").c_str());
 }
 
 void ShowPage(int page)
@@ -1180,6 +1220,9 @@ void Build()
     y += 24;
     Make(L"BUTTON", L"Both versions use the same saves", BS_AUTOCHECKBOX | WS_TABSTOP, 22, y + 4, 250, 20, kShareSaves);
     Make(L"BUTTON", L"Copy saves", BS_PUSHBUTTON | WS_TABSTOP, 282, y, 152, 27, kCopySaves);
+    y += 34;
+    Make(L"BUTTON", L"Open saves folder", BS_PUSHBUTTON | WS_TABSTOP, 22, y, 152, 27, kOpenSaves);
+    Label(L"This version's careers, rosters and profile, one folder per save.", 184, y + 1, 250, 30);
     y += 44;
     Label(L"PlayStation 3 (RPCS3) saves", 22, y, 412, 18, true);
     y += 22;
@@ -1219,6 +1262,7 @@ LRESULT CALLBACK WndProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         case kVersion: if (HIWORD(wp) == CBN_SELCHANGE) RefreshFiles(); return 0;
         case kShareSaves: RefreshFiles(); if (g.page == kPageSaves) FillExportList(); return 0;
         case kCopySaves: CopySaves(); return 0;
+        case kOpenSaves: OpenSavesFolder(); return 0;
         case kProfile: if (HIWORD(wp) == CBN_SELCHANGE)
             {
                 int i = Sel(kProfile);
@@ -1350,12 +1394,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show)
             if (argc == 4)
                 for (const Ps3SaveInfo& s : Ps3ListSaves(argv[2]))
                 {
-                    ok = Ps3ImportSave(s, argv[3], false, msg) != Ps3Import::Failed && ok;
+                    ok = Ps3ImportSave(s, PortSaveDir(argv[3]), std::wstring(argv[3]) + L"\\content-backup", false, msg) !=
+                             Ps3Import::Failed && ok;
                     printf("%s\n", Narrow(msg).c_str());
                 }
             else
             {
-                ok = Ps3ExportSave(argv[2], argv[3], argv[4], argv[5], msg);
+                ok = Ps3ExportSave(PortSaveDir(argv[2]), argv[3], argv[4], argv[5], msg);
                 printf("%s\n", Narrow(msg).c_str());
             }
             fflush(stdout);

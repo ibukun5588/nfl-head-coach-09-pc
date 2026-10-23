@@ -152,7 +152,8 @@ std::vector<Ps3SaveInfo> Ps3ListSaves(const std::wstring& folder)
     return out;
 }
 
-Ps3Import Ps3ImportSave(const Ps3SaveInfo& save, const std::wstring& cache, bool replace, std::wstring& msg)
+Ps3Import Ps3ImportSave(const Ps3SaveInfo& save, const std::wstring& saves, const std::wstring& backups, bool replace,
+                        std::wstring& msg)
 {
     Bytes hed, usr;
     if (!Ps3Parts(save.folder, hed, usr))
@@ -161,7 +162,7 @@ Ps3Import Ps3ImportSave(const Ps3SaveInfo& save, const std::wstring& cache, bool
         return Ps3Import::Failed;
     }
     std::error_code ec;
-    fs::path root = PortDir(cache), dir = root / save.name;
+    fs::path root = saves, dir = root / save.name;
     if (fs::exists(dir))
     {
         if (!replace) { msg = save.name + L": already in the port"; return Ps3Import::Exists; }
@@ -170,7 +171,7 @@ Ps3Import Ps3ImportSave(const Ps3SaveInfo& save, const std::wstring& cache, bool
         std::tm tm{};
         localtime_s(&tm, &t);
         strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &tm);
-        fs::path b = fs::path(cache) / L"content-backup" / stamp;
+        fs::path b = fs::path(backups) / stamp;
         fs::create_directories(b, ec);
         fs::copy(dir, b / save.name, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
         fs::copy_file(root / (save.name + L".name"), b / (save.name + L".name"), fs::copy_options::overwrite_existing, ec);
@@ -185,20 +186,22 @@ Ps3Import Ps3ImportSave(const Ps3SaveInfo& save, const std::wstring& cache, bool
     return Ps3Import::Imported;
 }
 
-std::vector<std::wstring> PortListSaves(const std::wstring& cache)
+std::wstring PortSaveDir(const std::wstring& cache) { return PortDir(cache).wstring(); }
+
+std::vector<std::wstring> PortListSaves(const std::wstring& saves)
 {
     std::vector<std::wstring> out;
     std::error_code ec;
-    for (const auto& e : fs::directory_iterator(PortDir(cache), ec))
+    for (const auto& e : fs::directory_iterator(fs::path(saves), ec))
         if (e.is_directory() && fs::is_regular_file(e.path() / e.path().filename())) out.push_back(e.path().filename().wstring());
     return out;
 }
 
-bool Ps3ExportSave(const std::wstring& cache, const std::wstring& name, const std::wstring& outParent,
+bool Ps3ExportSave(const std::wstring& saves, const std::wstring& name, const std::wstring& outParent,
                    const std::wstring& templ, std::wstring& msg)
 {
     Bytes d, hed, usr, sfo;
-    if (!Read(PortDir(cache) / name / name, d)) { msg = name + L": not found"; return false; }
+    if (!Read(fs::path(saves) / name / name, d)) { msg = name + L": not found"; return false; }
     if (!UnpackMc02(d, hed, usr, msg)) { msg = name + L": " + msg; return false; }
     if (!Read(fs::path(templ) / L"PARAM.SFO", sfo)) { msg = L"no PARAM.SFO in " + templ; return false; }
     std::wstring upper = Upper(name);   // PS3 savedata folder names are upper case

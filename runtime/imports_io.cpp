@@ -29,6 +29,25 @@ namespace fs = std::filesystem;
 
 std::string g_vfsRoot;   // set from main(); empty = no files available
 std::string g_vfsCache;  // writable scratch volume for cache:\ and the HDD device
+std::string g_vfsSaves;  // the saved games' folder when hc09.ini [game] saves is set (runtime.cpp); empty: in g_vfsCache
+
+fs::path HostPath(const std::string& utf8) { return fs::path(std::u8string(utf8.begin(), utf8.end())); }
+
+std::string HostUtf8(const fs::path& p)
+{
+    std::u8string u = p.u8string();
+    return std::string(u.begin(), u.end());
+}
+
+FILE* HostFopen(const std::string& utf8, const char* mode)
+{
+#ifdef _WIN32
+    std::wstring m(mode, mode + strlen(mode));
+    return _wfopen(HostPath(utf8).c_str(), m.c_str());
+#else
+    return fopen(utf8.c_str(), mode);
+#endif
+}
 
 namespace {
 
@@ -106,13 +125,13 @@ std::string ResolveHost(const std::string& root, const std::string& rel, bool* i
         if (!comp.empty())
         {
             std::error_code ec;
-            fs::directory_iterator it(cur, ec), end;
+            fs::directory_iterator it(HostPath(cur), ec), end;
             if (ec) return {};
             std::string match;
             std::string lc = Lower(comp);
             for (; it != end; it.increment(ec))
             {
-                std::string n = it->path().filename().string();
+                std::string n = HostUtf8(it->path().filename());
                 if (Lower(n) == lc) { match = n; break; }
             }
             if (match.empty()) return {};
@@ -122,7 +141,7 @@ std::string ResolveHost(const std::string& root, const std::string& rel, bool* i
         pos = nxt + 1;
     }
     std::error_code ec;
-    fs::file_status st = fs::status(cur, ec);
+    fs::file_status st = fs::status(HostPath(cur), ec);
     if (ec || !fs::exists(st)) return {};
     if (isDir) *isDir = fs::is_directory(st);
     return cur;
@@ -184,9 +203,9 @@ uint32_t OpenCommon(const char* api, PPCContext& ctx, uint32_t pHandle, uint32_t
         {
             host = parent + "/" + leaf;
             std::error_code ec;
-            if (wantDir) { fs::create_directory(host, ec); isDir = true; }
-            else { FILE* f = fopen(host.c_str(), "wb"); if (f) fclose(f); }
-            if (!fs::exists(host, ec)) host.clear();
+            if (wantDir) { fs::create_directory(HostPath(host), ec); isDir = true; }
+            else { FILE* f = HostFopen(host, "wb"); if (f) fclose(f); }
+            if (!fs::exists(HostPath(host), ec)) host.clear();
         }
     }
 
@@ -202,15 +221,15 @@ uint32_t OpenCommon(const char* api, PPCContext& ctx, uint32_t pHandle, uint32_t
     kf->hostPath = host; kf->guestPath = name; kf->isDir = isDir; kf->writable = writable;
     if (!isDir)
     {
-        kf->fp = fopen(host.c_str(), writable ? (truncate ? "w+b" : "r+b") : "rb");
-        if (!kf->fp && writable) kf->fp = fopen(host.c_str(), "w+b");
+        kf->fp = HostFopen(host, writable ? (truncate ? "w+b" : "r+b") : "rb");
+        if (!kf->fp && writable) kf->fp = HostFopen(host, "w+b");
         if (!kf->fp)
         {
             fprintf(stderr, "[vfs] %s \"%s\" -> open failed: %s\n", api, name.c_str(), strerror(errno));
             WriteIosb(pIosb, STATUS_ACCESS_DENIED, 0);
             return STATUS_ACCESS_DENIED;
         }
-        std::error_code ec; kf->size = uint64_t(fs::file_size(host, ec)); if (ec) kf->size = 0;
+        std::error_code ec; kf->size = uint64_t(fs::file_size(HostPath(host), ec)); if (ec) kf->size = 0;
     }
 
     uint32_t h;
@@ -461,7 +480,7 @@ PPC_FUNC(__imp__NtQueryFullAttributesFile)
         ctx.r3.u64 = STATUS_OBJECT_NAME_NOT_FOUND; return;
     }
     std::error_code ec;
-    uint64_t size = isDir ? 0 : uint64_t(fs::file_size(host, ec));
+    uint64_t size = isDir ? 0 : uint64_t(fs::file_size(HostPath(host), ec));
     if (ec) size = 0;
     uint32_t info = ctx.r4.u32;
     for (int i = 0; i < 0x20; i += 4) GStore32(info + i, 0);
@@ -520,9 +539,9 @@ PPC_FUNC(__imp__NtQueryDirectoryFile)
         f->dirPos = 0;
         f->dirListed = true;
         std::error_code ec;
-        for (auto& e : fs::directory_iterator(f->hostPath, ec))
+        for (auto& e : fs::directory_iterator(HostPath(f->hostPath), ec))
         {
-            std::string name = e.path().filename().string();
+            std::string name = HostUtf8(e.path().filename());
             if (WildMatch(mask.c_str(), name.c_str())) f->dirEntries.push_back(name);
         }
         std::sort(f->dirEntries.begin(), f->dirEntries.end(),
@@ -553,7 +572,7 @@ PPC_FUNC(__imp__NtQueryDirectoryFile)
         return;
     }
     std::error_code ec;
-    fs::path host = fs::path(f->hostPath) / name;
+    fs::path host = HostPath(f->hostPath + "/" + name);
     bool dir = fs::is_directory(host, ec);
     uint64_t size = dir ? 0 : uint64_t(fs::file_size(host, ec));
     if (ec) size = 0;
@@ -588,7 +607,7 @@ void FileOnClose(const std::shared_ptr<KFile>& f)
     f->deleteOnClose = false;
     if (f->fp) { fclose(f->fp); f->fp = nullptr; }
     std::error_code ec;
-    bool removed = fs::remove(f->hostPath, ec);   // a file or an empty directory
+    bool removed = fs::remove(HostPath(f->hostPath), ec);   // a file or an empty directory
     fprintf(stderr, "[vfs] delete-on-close %s -> %s\n", f->guestPath.c_str(),
             removed ? "deleted" : ec ? ec.message().c_str() : "not found");
 }
