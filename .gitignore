@@ -1,0 +1,53 @@
+# Never commit game-derived binaries (copyrighted material)
+default.xex
+*.xex
+*.basefile
+# Recompiler output (236MB, regenerable)
+out/
+# Logs
+*.log
+functions.part
+
+# Build output (regenerable)
+build-run/
+build-o0/
+build-o2/
+runtime/imports_gen.cpp
+recomp.log
+hc09-cache/
+runtime/build_id.h
+
+# build.sh staging copies of config/*.toml, scratch logs
+/hc09.toml
+/jt_final.toml
+/jt_final-*.toml
+*.logcp
+
+# frame captures (decoded game textures/shaders) - game-derived, never commit
+captures/
+
+# personal settings (hc09.ini.example is the template)
+/hc09.ini
+
+# third-party binaries fetched locally (FFmpeg LGPL shared build for XMA decoding)
+thirdparty/
+
+# build.py --variant experiments (recompiled code and build dirs, config copies)
+out-*/
+build-*/
+/hc09-*.toml
+
+# Python bytecode of tools/ (profile_report imports ppcxref)
+tools/__pycache__/
+
+# archived binaries of earlier builds (builds/archive/<commit>/, README there)
+/builds/
+
+# portable folders (tools/make_portable.ps1)
+/dist/
+
+# an optional private exe icon for development builds: never committed or in the release build (CMakeLists.txt)
+/res/hc09.ico
+
+# crash reports the runtime writes (runtime/crash_report.h)
+/crash-reports/

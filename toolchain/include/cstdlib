@@ -1,0 +1,3 @@
+#pragma once
+#include <stdlib.h>
+namespace std { using ::malloc; using ::calloc; using ::realloc; using ::free; using ::abort; using ::exit; using ::abs; using ::size_t; }

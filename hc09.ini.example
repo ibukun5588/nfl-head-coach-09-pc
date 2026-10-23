@@ -1,0 +1,68 @@
+; hc09.ini - settings for hc09.exe. Copy this file to hc09.ini in the folder
+; you start hc09.exe from (the one with headcoach.basefile). Environment
+; variables (HC09_*) and --root on the command line override these values.
+; Booleans: on/off (or 1/0, yes/no, true/false); auto = the built-in default.
+
+[game]
+; Folder with default.xex and the qkl_*.ast archives.
+root = C:\Games\NFL Head Coach 09
+; Folder for saves (career, profile, rosters) and caches, relative to the folder
+; hc09.exe starts in. auto = hc09-cache; the 1.2 title update build uses
+; hc09-cache-v12, so each game version keeps its own saves.
+cache = auto
+
+[display]
+; Render on the GPU and show the game in a window.
+live = on
+; Start in borderless fullscreen. Alt+Enter or F11 toggles it while playing.
+fullscreen = off
+; Wait for the display when presenting (no tearing).
+vsync = on
+; Frames per second. auto/35 = the game's own (35, flips 1-2 vblanks apart);
+; 30 = an even 30; 60 = 60 where the PC keeps up (menus; 3D scenes are limited
+; by the renderer for now). Game logic runs in real time at any setting.
+framerate = auto
+; Exact (slow) shaders, for checking rendering against the reference.
+exact = off
+; Renderer: native (the game's Direct3D calls drawn directly with the PC's GPU;
+; fast) or emulated (the Xbox 360 GPU emulated: EDRAM, the console's command
+; stream; slower, the correctness reference). auto = native.
+renderer = auto
+; Resolution (native renderer): the game is drawn at this multiple of its own
+; 1280x720 - 1 = 720p, 2 = 1440p, 3 = 4K (3840x2160). The window shows it
+; scaled to its size. auto = 1.
+scale = auto
+; Multisampling (native renderer): 1 = as the game asks (4x in 3D scenes),
+; 2 = at most 2x, 0 = off. Cheaper settings help at scale 3 on slower GPUs.
+msaa = auto
+
+[audio]
+; Play the game's sound (auto = when the window is visible).
+output = auto
+volume = 1.0
+
+[input]
+; Controller and keyboard (auto = when the window is visible).
+;   arrows: D-pad          W A S D: left stick     numpad 8 4 2 6: right stick
+;   Space / K: A           Esc / L: B              J: X          I: Y
+;   Enter: START           Backspace / Tab: BACK   Q / E: LB / RB
+;   Z / C: LT / RT         Shift: left stick click numpad 5: right stick click
+host = auto
+; Controller backend. auto: SDL3 (SDL3.dll beside hc09.exe) when it finds a pad,
+; else XInput. SDL reads PlayStation pads (DualShock 4, DualSense; DualShock 3
+; with the DsHidMini driver), Switch Pro and Xbox pads; buttons map by position
+; (Cross = A, Circle = B, Square = X, Triangle = Y, Options = START,
+; Share/Create or touchpad = BACK). sdl / xinput: only that one.
+controller = auto
+; Button icons. auto: PlayStation icons while a PlayStation pad is in use, else
+; Xbox; playstation / xbox: always those. The PlayStation icons are made once
+; from the game files: py -3.11 tools/playstation_icons.py
+glyphs = auto
+
+[env]
+; Any other HC09_* knob, e.g.
+; HC09_GPU_HWSAMPLER = 1
+; Simmed games (franchise sim) tilted toward your team, 0-100 (off by default):
+; your players' sim abilities move that far toward the maximum, so the plays
+; really go your way (100 = blowouts; 40-60 = wins that still look normal).
+; HC09_AUTOWIN_SIM = 50

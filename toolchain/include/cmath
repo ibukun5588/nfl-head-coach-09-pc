@@ -1,0 +1,32 @@
+#pragma once
+#include <math.h>
+// The C++ overloads MSVC's <cmath> gives (float versions forward to the f functions), and the classification
+// functions as compiler builtins.
+inline float sqrt(float x) { return sqrtf(x); }
+inline float fabs(float x) { return fabsf(x); }
+inline float floor(float x) { return floorf(x); }
+inline float ceil(float x) { return ceilf(x); }
+inline float trunc(float x) { return truncf(x); }
+inline float round(float x) { return roundf(x); }
+inline float nearbyint(float x) { return nearbyintf(x); }
+inline float rint(float x) { return rintf(x); }
+inline float fmod(float x, float y) { return fmodf(x, y); }
+inline float copysign(float x, float y) { return copysignf(x, y); }
+inline float fmin(float x, float y) { return fminf(x, y); }
+inline float fmax(float x, float y) { return fmaxf(x, y); }
+inline float fma(float x, float y, float z) { return fmaf(x, y, z); }
+inline float exp2(float x) { return exp2f(x); }
+inline float log2(float x) { return log2f(x); }
+namespace std {
+using ::sqrt; using ::sqrtf; using ::fabs; using ::floor; using ::ceil; using ::trunc; using ::round; using ::nearbyint;
+using ::rint; using ::fmod; using ::copysign; using ::fmin; using ::fmax; using ::fma; using ::exp2; using ::log2;
+using ::exp; using ::log; using ::pow; using ::sin; using ::cos;
+inline bool isnan(float x) { return __builtin_isnan(x); }
+inline bool isnan(double x) { return __builtin_isnan(x); }
+inline bool isinf(float x) { return __builtin_isinf(x); }
+inline bool isinf(double x) { return __builtin_isinf(x); }
+inline bool isfinite(float x) { return __builtin_isfinite(x); }
+inline bool isfinite(double x) { return __builtin_isfinite(x); }
+inline bool signbit(float x) { return __builtin_signbit(x); }
+inline bool signbit(double x) { return __builtin_signbit(x); }
+}
