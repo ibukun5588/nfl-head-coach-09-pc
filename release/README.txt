@@ -83,7 +83,8 @@ SAVES
 -----
 
 Your careers, rosters and profile are in your Documents folder: Documents\NFL Head Coach 09\Saves\1.0 and \1.2
-(with "Both versions use the same saves" on, both versions use the 1.0 folder). Saves > Open saves folder opens it.
+(with "Both versions use the same saves" on, both versions use the 1.0 folder; when OneDrive backs up your
+Documents, they are in OneDrive\Documents). Saves > Open saves folder opens it.
 Each save is a folder of its own (for example ROSTER-... or CAREER-...). Copy the NFL Head Coach 09 folder to back
 them up or to take them to another PC. Saves work in both versions. Saves the launcher replaces are kept in
 Saves\Backups first.
@@ -91,11 +92,10 @@ Saves\Backups first.
 Saves from the Xenia emulator have the same layout: with the game closed, copy the save folders from Xenia's
 content\...\45410841\00000001 folder into the saves folder.
 
-An install made before this kept its saves in the install folder (hc09-cache); running the new setup over it moves
-them to Documents (the old copy stays in hc09-cache\content-moved-to-Documents).
-
 PlayStation 3 saves (from the RPCS3 emulator) can be brought over and back: Saves > Import PS3 saves... and
-Export to PS3.... A save copied off a real PS3 is still encrypted and cannot be read; use RPCS3's saves.
+Export to PS3.... A save copied off a real PS3 is encrypted: decrypt it first with Apollo Save Tool
+(github.com/bucanero/apollo-ps3; it runs on a PS3 with homebrew or inside RPCS3), then import the BLUS30128-...
+folder holding the decrypted HED-DATA and USR-DATA files.
 
 
 IF THE GAME CRASHES

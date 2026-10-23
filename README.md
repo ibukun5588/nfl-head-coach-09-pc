@@ -71,7 +71,8 @@ If some of your game files differ from the retail ones (modified files), setup n
 
 ## Where your saves are
 
-In your Documents folder (*Saves* > **Open saves folder** in the launcher opens it):
+In your Documents folder (when OneDrive backs up your Documents, that is `OneDrive\Documents`). *Saves* >
+**Open saves folder** in the launcher opens it:
 
 | Game version | Saves folder |
 |---|---|
@@ -83,18 +84,18 @@ Each save is a folder of its own name (`CAREER-<name>`, `ROSTER-<name>`, `PROFIL
 same name, plus a `<name>.name` file beside it. To back up your saves or move them to another PC, copy the
 `NFL Head Coach 09` folder. Saves from the Xenia emulator have the same layout: with the game closed, copy the save
 folders from Xenia's `content\...\45410841\00000001` folder in. Saves work in both game versions (*Saves* >
-*Copy saves*). When the launcher replaces a save it puts the old one in `Saves\Backups` first. An install made before
-this keeps its saves in the install folder's `hc09-cache` folders until you run the new setup over it, which moves
-them here (the old copy stays as `content-moved-to-Documents`).
+*Copy saves*). When the launcher replaces a save it puts the old one in `Saves\Backups` first.
 
 ## PlayStation 3 players
 
 The PC version is built from the **Xbox 360** game, so you need the Xbox 360 copy to install it; your PS3 careers,
 rosters and profile can then come along:
 
-1. Your PS3 saves must be **decrypted**: saves made by the **RPCS3** emulator are; saves copied off a real PS3 are
-   encrypted. Load a real PS3's saves in RPCS3, or decrypt them with a PS3 save tool, first. A decrypted save is a
-   `BLUS30128-...` folder with `HED-DATA` and `USR-DATA` files in it.
+1. Your PS3 saves must be **decrypted**. Saves made by the **RPCS3** emulator already are. Saves copied off a real
+   PS3 are encrypted: decrypt them first with [Apollo Save Tool](https://github.com/bucanero/apollo-ps3), which runs
+   on a PS3 with homebrew or inside RPCS3 (*HDD Saves* > your save > *Decrypt save game*, for each file; its README
+   explains the setup). A decrypted save is a `BLUS30128-...` folder with plain `HED-DATA` and `USR-DATA` files in
+   it: put the decrypted files there.
 2. In the launcher: **Saves** > **Import PS3 saves...** and choose RPCS3's savedata folder
    (`<RPCS3 folder>\dev_hdd0\home\00000001\savedata`) to import every NFL Head Coach 09 save in it, or one
    `BLUS30128-...` folder. Saves already in the PC version are only replaced if you say so (and backed up first).
