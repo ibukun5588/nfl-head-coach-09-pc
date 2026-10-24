@@ -3,7 +3,11 @@
 // no Python (docs/HANDOFF_M11.md steps 2-3, the split build: runtime/split_abi.h).
 //
 //   hc09-build --kit <kit dir> --version 1.0|1.2 --xex <the disc's default.xex> [--tu <title update>]
-//              --dest <folder for hc09.exe> [--work <temp folder>] [--jobs N] [--keep]
+//              --dest <folder for hc09.exe> [--work <temp folder>] [--jobs N] [--keep] [--patches <writes file>]
+//
+// --patches: the player's Xenia patches (the launcher's patch manager writes them as "<hex address> <hex bytes>"
+// lines) are applied before the recompile (XenonRecomp patch_writes_file_path; code caves become part of the function
+// that jumps into them). Such a build is not the tested one, so it is not compared with kit.ini.
 //
 // Steps: check the xex (and the update) against the retail hashes; 1.2: apply the update (kit\hc09-xexpatch.exe);
 // recompile it to C++ (kit\XenonRecomp.exe, kit\config\<version>); compile that and runtime/split_glue.cpp with the
@@ -204,7 +208,7 @@ std::string KitValue(const fs::path& ini, const std::string& key)
 
 int wmain(int argc, wchar_t** argv)
 {
-    fs::path kit, xex, tu, dest, work;
+    fs::path kit, xex, tu, dest, work, patches;
     std::wstring version;
     unsigned jobs = std::max(1u, std::thread::hardware_concurrency());
     bool keep = false;
@@ -220,12 +224,13 @@ int wmain(int argc, wchar_t** argv)
         else if (a == L"--work") work = next();
         else if (a == L"--jobs") jobs = std::max(1, _wtoi(next().c_str()));
         else if (a == L"--keep") keep = true;
+        else if (a == L"--patches") patches = next();
         else Fail("unknown argument " + Narrow(a));
     }
     if (kit.empty() || xex.empty() || dest.empty() || (version != L"1.0" && version != L"1.2"))
     {
         fputs("hc09-build --kit <kit> --version 1.0|1.2 --xex <default.xex> [--tu <title update>] --dest <folder> "
-              "[--work <folder>] [--jobs N] [--keep]\n", stderr);
+              "[--work <folder>] [--jobs N] [--keep] [--patches <writes file>]\n", stderr);
         return 2;
     }
     const bool v12 = version == L"1.2";
@@ -295,6 +300,14 @@ int wmain(int argc, wchar_t** argv)
     setKey("file_path", srcXex.filename());
     setKey("out_directory_path", out.filename());
     setKey("switch_table_file_path", L"jt_final.toml");
+    if (!patches.empty())
+    {
+        fs::copy_file(patches, work / L"patch_writes.txt", fs::copy_options::overwrite_existing);
+        size_t at = cfg.find("[main]");
+        if (at == std::string::npos) Fail("the config has no [main] section");
+        cfg.insert(at + 6, "\npatch_writes_file_path = \"patch_writes.txt\"");
+        Say("with your patches (%s)", Narrow(patches.filename().wstring()).c_str());
+    }
     { std::ofstream(work / L"hc09.toml", std::ios::binary) << cfg; }
     DWORD t0 = GetTickCount();
     // Run in the work folder with the config named relative to it: XenonRecomp joins the config's folder to the paths
@@ -388,7 +401,8 @@ int wmain(int argc, wchar_t** argv)
     Say("progress 5 %d checking the result", kSteps);
     std::string got = Sha256(exe), want = KitValue(kit / L"kit.ini", "hc09_" + ver + "_sha256");
     std::transform(want.begin(), want.end(), want.begin(), ::toupper);
-    if (want.empty()) Say("note: the kit lists no hash for %s; hc09.exe is %s", ver.c_str(), got.c_str());
+    if (!patches.empty()) Say("patched build (not compared with the tested build): hc09.exe is %s", got.c_str());
+    else if (want.empty()) Say("note: the kit lists no hash for %s; hc09.exe is %s", ver.c_str(), got.c_str());
     else if (got != want) Fail("hc09.exe differs from the tested build (" + got + ", expected " + want + ")");
     else Say("hc09.exe matches the tested build");
 
@@ -404,6 +418,8 @@ int wmain(int argc, wchar_t** argv)
         if (g_log) { fclose(g_log); g_log = nullptr; }
         fs::copy_file(work / L"build.log", dest / L"hc09-build.log", fs::copy_options::overwrite_existing);
         std::error_code ec;
+        if (!patches.empty())   // which code caves the recompiler found: what to look at when a patch misbehaves
+            fs::copy_file(work / L"recomp.log", dest / L"hc09-recomp.log", fs::copy_options::overwrite_existing, ec);
         fs::remove_all(work, ec);
     }
     Say("done: %s", Narrow((dest / L"hc09.exe").wstring()).c_str());

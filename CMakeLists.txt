@@ -411,7 +411,8 @@ endif()
 # checks the user's own default.xex against the one this build was made from and builds headcoach.basefile from it:
 # the hashes of both are taken here, at configure time. Static C runtime: it starts on a PC without the VC++ runtime.
 if(WIN32)
-  add_executable(hc09-launcher WIN32 tools/launcher/hc09_launcher.cpp tools/launcher/ps_icons.cpp tools/launcher/ps3_saves.cpp tools/launcher/pad_test.cpp)
+  add_executable(hc09-launcher WIN32 tools/launcher/hc09_launcher.cpp tools/launcher/ps_icons.cpp tools/launcher/ps3_saves.cpp tools/launcher/pad_test.cpp
+                               tools/launcher/xenia_patch.cpp)
   add_dependencies(hc09-launcher hc09_build_id)
   target_include_directories(hc09-launcher PRIVATE "${CMAKE_SOURCE_DIR}/runtime")
   target_link_libraries(hc09-launcher PRIVATE bcrypt comctl32 shell32 ole32 winhttp)

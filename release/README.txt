@@ -64,6 +64,7 @@ Controls   Which controller to use, the button icons (Xbox or PlayStation), keyb
            test panel that shows the controller's buttons and sticks live.
 Saves      Shared saves for both versions or one set each, copying saves between versions, Open saves folder,
            and importing or exporting PlayStation 3 (RPCS3) saves.
+Patches    Xenia game patches (see XENIA PATCHES below).
 
 
 CONTROLLERS
@@ -96,6 +97,26 @@ PlayStation 3 saves (from the RPCS3 emulator) can be brought over and back: Save
 Export to PS3.... A save copied off a real PS3 is encrypted: decrypt it first with Apollo Save Tool
 (github.com/bucanero/apollo-ps3; it runs on a PS3 with homebrew or inside RPCS3), then import the BLUS30128-...
 folder holding the decrypted HED-DATA and USR-DATA files.
+
+
+XENIA PATCHES
+-------------
+
+The launcher's Patches tab runs Xenia game patches (.patch.toml files, the format Xenia Canary uses):
+
+1. Press Open patches folder, put the .patch.toml files in it, then press Reload.
+2. Tick the patches you want. Each file counts as made for game version 1.2; if it was made for 1.0, select the file
+   and set "This file is for" to 1.0.
+3. Press Play. The first time, and whenever you change which patches are on, the launcher rebuilds that game version
+   with the patches (a few minutes, like at install), then starts it. After that it starts at once.
+
+While patches are on, only their game version can be played (the Game tab locks the version until you turn them
+off). With them off, the normal game plays again at once.
+
+The patches are applied before the game's code is compiled for the PC, not while it runs. Most patches work as they
+do in Xenia, including ones that add new code. A patch that changes code where the PC version hooks in code of its
+own may not; the Patches tab says when that is the case. If a build fails, the details are in build-work-patched in
+the install folder.
 
 
 IF THE GAME CRASHES

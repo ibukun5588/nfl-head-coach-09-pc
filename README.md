@@ -29,7 +29,7 @@ the game's folder to a USB drive; with a PC disc drive that reads Xbox 360 discs
 
 ## Installing
 
-1. Download `HC09-PC-Setup-1.0.0.zip` from the [Releases](../../releases) page and unzip it anywhere.
+1. Download `HC09-PC-Setup-1.1.0.zip` from the [Releases](../../releases) page and unzip it anywhere.
 2. Run **HC09Setup.exe**. Windows may say it protected your PC (the program is not signed): press
    *More info* > *Run anyway*.
 3. **Your game**: press **Folder...** and choose the folder with `default.xex` and the five `qkl_*.ast` files.
@@ -56,6 +56,7 @@ If some of your game files differ from the retail ones (modified files), setup n
   that shows your controller's buttons and sticks live.
 - **Saves**: shared saves for both game versions, copying saves between them, **Open saves folder** (one folder per
   save; saves from the Xenia emulator can be copied in), and PS3 (RPCS3) save import/export.
+- **Patches**: Xenia game patches (see [Xenia patches](#xenia-patches)).
 - **Profile** (top): save named sets of display, sound and controller settings ("TV", "Laptop") and switch between them.
 
 ### Controllers
@@ -68,6 +69,25 @@ If some of your game files differ from the retail ones (modified files), setup n
   for it to get PlayStation icons.
 - Keyboard: arrows = D-pad, W A S D = left stick, numpad 8 4 2 6 = right stick, Space = A, Esc = B, J = X, I = Y,
   Enter = START, Backspace = BACK, Q / E = LB / RB, Z / C = LT / RT.
+
+## Xenia patches
+
+The launcher's **Patches** tab runs Xenia game patches (`.patch.toml` files, the format Xenia Canary uses):
+
+1. Press **Open patches folder**, put the `.patch.toml` files in it, then press **Reload**.
+2. Tick the patches you want. Each file counts as made for **game version 1.2**; if it was made for 1.0, select the
+   file and set *This file is for* to 1.0. (Xenia checks a version hash that the PC version cannot, so you choose.)
+3. Press **Play**. The first time, and whenever you change which patches are on, the launcher rebuilds that game
+   version with the patches (a few minutes, like at install), then starts it. After that it starts at once.
+
+While patches are on, only their game version can be played: the *Game* tab locks the version until you turn them
+off. With them off, the normal game plays again at once (the patched build is kept in `<version>-patched` for next
+time).
+
+The PC version is the game's code compiled for the PC, so patches are applied before it is compiled instead of while
+the game runs. Most patches work as they do in Xenia, including ones that add new code (code caves). A patch that
+changes code where the PC version hooks in code of its own may not; the Patches tab says when that is the case. If a
+build fails, the details are in `build-work-patched` in the install folder.
 
 ## Where your saves are
 
