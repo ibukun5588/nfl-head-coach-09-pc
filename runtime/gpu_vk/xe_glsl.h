@@ -95,6 +95,8 @@ struct TranslateOptions
     // colour outputs at locations 0-3 (the exported colours, scaled by the targets'
     // exponent bias) and does the alpha test and kill with discard.
     bool hostRt = false;
+    // Experiment for weak GPUs (M12 step 4): ALU temporaries without `precise` (the compiler may fuse and reorder).
+    uint32_t relaxed = 0;     // bit 1 (2): no `precise` on ALU temporaries (dev: HC09_NATIVE_RELAXED=2; no gain measured)
 };
 TranslatedShader TranslateShader(const xenos::ShaderCode& code, const TranslateOptions& opt = {});
 // The EDRAM library: GLSL ports of the software rasterizer's render-target
@@ -163,6 +165,8 @@ struct NativeResolveConsts
 // per rectangle; the 4th mirrors the vertex opposite the longest edge; the
 // interpolators and the screen-space z likewise).
 const char* RectListGeometryShader();
+// The native renderer's form of the per-draw constants (an array indexed by a push constant; xe_glsl.cpp).
+std::string DrawIndexedConsts(std::string glsl);
 
 // Vertex fetch constant slots (0..95) a vertex shader reads with full vfetch
 // instructions (each slot: 2 dwords at FETCH_CONSTANTS; address in dword 0,

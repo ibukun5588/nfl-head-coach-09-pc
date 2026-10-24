@@ -3,8 +3,8 @@
 
     python tools/split_def.py <llvm-nm> <runtime/split_hooks.inc> <out.def> <object dir> [runtime/game_addr_v12.h]
 
-Exports what the recompiled code calls in the runtime: the kernel imports (?__imp__X), GuestBadIndirect and
-GuestTimeBase, and each hook of split_hooks.inc as hc09hook_sub_X. Fails when the runtime hooks a guest function
+Exports what the recompiled code calls in the runtime: the kernel imports (?__imp__X), GuestBadIndirect,
+GuestTimeBase, GuestUnresolvedBranch, and each hook of split_hooks.inc as hc09hook_sub_X. Fails when the runtime hooks a guest function
 that split_hooks.inc does not list (hc09.exe would then call the generated body and skip the hook), or the other way.
 1.2: split_hooks.inc names 1.0's functions; game_addr_v12.h maps them to 1.2's (the export names stay the 1.0 ones,
 as in runtime/split_glue.cpp, which is compiled with the same header).
@@ -32,9 +32,9 @@ def main():
     if missing or extra:
         sys.exit(f'split_def: {inc} does not match the runtime\'s hooks: missing {missing}, not listed {extra}')
     imports = sorted(s for s in defined if re.fullmatch(r'\?__imp__\w+' + re.escape(SIG), s))
-    guest = sorted(s for s in defined if s.startswith(('?GuestBadIndirect@@', '?GuestTimeBase@@')))
-    if len(guest) != 2:
-        sys.exit(f'split_def: GuestBadIndirect/GuestTimeBase not found ({guest})')
+    guest = sorted(s for s in defined if s.startswith(('?GuestBadIndirect@@', '?GuestTimeBase@@', '?GuestUnresolvedBranch@@')))
+    if len(guest) != 3:
+        sys.exit(f'split_def: GuestBadIndirect/GuestTimeBase/GuestUnresolvedBranch not found ({guest})')
     lines = ['LIBRARY hc09rt', 'EXPORTS'] + [f'    {s}' for s in imports + guest]
     lines += [f'    hc09hook_{n}=?{h}{SIG}' for n, h in zip(names, hooks)]
     new = '\n'.join(lines) + '\n'

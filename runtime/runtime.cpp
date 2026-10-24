@@ -1287,6 +1287,38 @@ double HostThreadCpuSeconds(void* thread)
 #endif
 }
 
+// ---- Thread names for Windows tools (Task Manager, Process Explorer, PIX, tools/perf_sample.ps1) ----------------
+// SetThreadDescription (Windows 10 1607+, Wine), looked up at run time.
+void HostSetThreadName(void* thread, const char* name)
+{
+#ifdef _WIN32
+    using Fn = HRESULT(WINAPI*)(HANDLE, PCWSTR);
+    static const Fn set = (Fn)(void*)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "SetThreadDescription");
+    if (!set || !name) return;
+    wchar_t w[64] = {};
+    if (MultiByteToWideChar(CP_UTF8, 0, name, -1, w, 64) <= 0) return;
+    set(thread ? HANDLE(thread) : GetCurrentThread(), w);
+    // HC09_THREAD_PRIORITY=frame (M12 step 3 experiment): the threads every frame waits for run at THREAD_PRIORITY_HIGHEST.
+    static const bool frame = [] { const char* e = Hc09Env("HC09_THREAD_PRIORITY"); return e && !strcmp(e, "frame"); }();
+    if (frame && (!strcmp(name, "FGGameRender") || !strcmp(name, "hc09 renderer") || !strcmp(name, "GPU command processor")))
+        SetThreadPriority(thread ? HANDLE(thread) : GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+#else
+    (void)thread; (void)name;
+#endif
+}
+
+// A host thread's priority on Windows' scale (-2..2, 15, -15; nullptr = the calling thread).
+void HostSetThreadPriority(void* thread, int priority)
+{
+#ifdef _WIN32
+    if (priority > 2) priority = THREAD_PRIORITY_TIME_CRITICAL;   // the game's 15-17 (audio)
+    if (priority < -2) priority = THREAD_PRIORITY_IDLE;
+    SetThreadPriority(thread ? HANDLE(thread) : GetCurrentThread(), priority);
+#else
+    (void)thread; (void)priority;
+#endif
+}
+
 // ---- Bad indirect call diagnostic (see guest_indirect.h) -------------------
 
 [[noreturn]] void GuestBadIndirect(PPCContext& ctx, uint32_t target)
@@ -1303,4 +1335,19 @@ double HostThreadCpuSeconds(void* thread)
     snprintf(details, sizeof details, "          target 0x%08X, caller lr 0x%08X\n", target, uint32_t(ctx.lr));
     CrashReportWrite("indirect call to an invalid guest address", details, nullptr);
     _exit(44);
+}
+
+void GuestUnresolvedBranch(uint32_t target, uint32_t function)
+{
+    static std::mutex m;
+    static std::vector<uint32_t> seen;
+    {
+        std::lock_guard<std::mutex> lock(m);
+        if (std::find(seen.begin(), seen.end(), target) != seen.end())
+            return;
+        seen.push_back(target);
+    }
+    fprintf(stderr, "[runtime] sub_%08X branched to 0x%08X, which the recompiler could not resolve: the function "
+                    "returned there instead\n", function, target);
+    fflush(stderr);
 }

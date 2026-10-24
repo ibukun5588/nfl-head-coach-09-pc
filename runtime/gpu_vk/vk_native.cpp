@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -254,8 +255,15 @@ struct NativeRenderer::Impl
         std::vector<VkCommandBuffer> spareCb, spareUp;
         uint32_t tsN = 0;      // timestamps written (HC09_NATIVE_PROF)
         std::vector<uint8_t> tsKinds;   // kind of work between timestamp i and i + 1
+        std::vector<int32_t> tsDraw;    // HC09_NATIVE_DRAW_PROF: the draw (index into drawInfo) between i and i + 1, or -1
+        std::vector<std::array<uint64_t, 4>> drawInfo;   // vs hash, ps hash, width << 32 | height, samples << 32 | indices
     };
-    static constexpr uint32_t kMaxTs = 1024;   // timestamps per slot
+    static constexpr uint32_t kMaxTs = 4096;   // timestamps per slot
+    // HC09_NATIVE_DRAW_PROF=1 (implies HC09_NATIVE_PROF): a timestamp after every draw; GPU time summed by shader pair,
+    // render area and samples, the top entries printed every 600 frames ([native-draws]).
+    bool drawProf = false;
+    std::map<std::array<uint64_t, 4>, std::pair<double, uint64_t>> drawTimes;   // key: vs, ps, area, samples -> GPU s, draws
+    std::map<std::array<uint64_t, 4>, uint64_t> drawIndices;
     int gpuKind = NativeProfile::kGpuOther;
     // HC09_NATIVE_PROF: a timestamp where the kind of GPU work changes.
     void Mark(int kind)
@@ -264,6 +272,7 @@ struct NativeRenderer::Impl
         if (!tsPool || !recording || kind == gpuKind || sl.tsN + 1 >= kMaxTs) return;
         vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, tsPool, kMaxTs * cur + sl.tsN++);
         sl.tsKinds.push_back(uint8_t(gpuKind));
+        if (drawProf) sl.tsDraw.push_back(-1);
         gpuKind = kind;
     }
     Slot slots[kSlots];
@@ -309,9 +318,21 @@ struct NativeRenderer::Impl
             profile.gpuSeconds += double(ts[sl.tsN - 1] - ts[0]) * period;
             for (uint32_t i = 0; i + 1 < sl.tsN && i < sl.tsKinds.size(); ++i)
                 if (ts[i + 1] > ts[i]) profile.gpuKind[sl.tsKinds[i]] += double(ts[i + 1] - ts[i]) * period;
+            for (uint32_t i = 0; drawProf && i + 1 < sl.tsN && i < sl.tsDraw.size(); ++i)
+                if (sl.tsDraw[i] >= 0 && ts[i + 1] >= ts[i])
+                {
+                    const auto& di = sl.drawInfo[size_t(sl.tsDraw[i])];
+                    std::array<uint64_t, 4> key = { di[0], di[1], di[2], di[3] >> 32 };
+                    auto& e = drawTimes[key];
+                    e.first += double(ts[i + 1] - ts[i]) * period;
+                    ++e.second;
+                    drawIndices[key] += di[3] & 0xFFFFFFFFu;
+                }
         }
         sl.tsN = 0;
         sl.tsKinds.clear();
+        sl.tsDraw.clear();
+        sl.drawInfo.clear();
     }
     // Texture images by shape, for reuse once retired: an image has an allocation of
     // its own, and creating plus freeing one costs ~0.3 ms, while the textures that
@@ -460,6 +481,7 @@ struct NativeRenderer::Impl
     Target* bd = nullptr;
     uint32_t areaW = 0, areaH = 0;   // render area of the bound set
     VkPipeline boundPipe = VK_NULL_HANDLE;
+    VkDescriptorSet boundSet = VK_NULL_HANDLE;   // the draw set bound in the command buffer
     // State the command buffer already has (reset with boundPipe: a new command buffer or render pass), so
     // a draw records only what changed: viewport and index buffer once, scissor / blend constants / stencil
     // masks when they differ from the previous draw's.
@@ -500,6 +522,7 @@ struct NativeRenderer::Impl
         vkBeginCommandBuffer(cb, &bi);
         recording = true;
         boundPipe = VK_NULL_HANDLE;
+        boundSet = VK_NULL_HANDLE;
         rec.valid = false;
         if (tsPool && slots[cur].tsN == 0)   // the slot's first command buffer since its timestamps were read
         {
@@ -973,6 +996,7 @@ struct NativeRenderer::Impl
         vkCmdBeginRendering(cb, &ri);
         rendering = true;
         boundPipe = VK_NULL_HANDLE;
+        boundSet = VK_NULL_HANDLE;
         rec.valid = false;
         return true;
     }
@@ -1037,6 +1061,13 @@ struct NativeRenderer::Impl
         char name[64];
         snprintf(name, sizeof(name), "native_%s_%016llx", vs ? "vs" : "ps", (unsigned long long)hash);
         if (!e.meta.error.empty()) { Warn(std::string("shader ") + name + " failed: " + e.meta.error); return nullptr; }
+        // HC09_NATIVE_SHADER_DIR=<dir>: write every translated shader there as <name>.glsl (dev).
+        if (const char* dir = Hc09Env("HC09_NATIVE_SHADER_DIR"))
+            if (FILE* f = fopen((std::string(dir) + "/" + name + ".glsl").c_str(), "wb"))
+            {
+                fwrite(e.meta.glsl.data(), 1, e.meta.glsl.size(), f);
+                fclose(f);
+            }
         e.module = Module(e.meta.glsl, vs ? Stage::kVertex : Stage::kFragment, name);
         if (!e.module) return nullptr;
         if (e.meta.unsupported) Warn(std::string("shader ") + name + " uses an untranslated vertex format");
@@ -1594,6 +1625,9 @@ struct NativeRenderer::Impl
 
     void Draw(const xenos::DrawPacket& d, uint64_t vsHash, const xenos::ShaderCode* vsCode, uint64_t psHash, const xenos::ShaderCode* psCode)
     {
+        // HC09_NATIVE_SKIP_PS=<hex hash>: leave out the draws with that pixel shader (to see what they are; dev).
+        static const uint64_t skipPs = [] { const char* e = Hc09Env("HC09_NATIVE_SKIP_PS"); return e ? strtoull(e, nullptr, 16) : 0ull; }();
+        if (skipPs && psHash == skipPs) { Skip("HC09_NATIVE_SKIP_PS"); return; }
         uint32_t mode = Reg(reg::RB_MODECONTROL) & 7;
         if (mode != 4 && mode != 5) { Skip("edram mode not 4/5"); return; }
         if (!vsCode || d.primType == 1 || d.sourceSelect == 1) { Skip("no VS / points / immediate indices"); return; }
@@ -1820,11 +1854,11 @@ struct NativeRenderer::Impl
             ai.descriptorSetCount = 1;
             ai.pSetLayouts = &setLayout;
             if (vkAllocateDescriptorSets(dev->device, &ai, &set) != VK_SUCCESS) { Skip("descriptor pool exhausted"); return; }
-            VkDescriptorBufferInfo bMem{ guest.buffer, 0, VK_WHOLE_SIZE }, bConst{ consts.buffer, 0, sizeof(DrawConsts) };
+            VkDescriptorBufferInfo bMem{ guest.buffer, 0, VK_WHOLE_SIZE }, bConst{ consts.buffer, 0, VK_WHOLE_SIZE };
             VkWriteDescriptorSet w[8]{};
             for (auto& x : w) { x.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; x.dstSet = set; x.descriptorCount = 1; }
             w[0].dstBinding = 0; w[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w[0].pBufferInfo = &bMem;
-            w[1].dstBinding = 1; w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC; w[1].pBufferInfo = &bConst;
+            w[1].dstBinding = 1; w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w[1].pBufferInfo = &bConst;
             w[2].dstBinding = 2; w[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[2].descriptorCount = 32; w[2].pImageInfo = images[kTex2D];
             w[3].dstBinding = 4; w[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[3].descriptorCount = 32; w[3].pImageInfo = images[kTex3D];
             w[4].dstBinding = 5; w[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[4].descriptorCount = 32; w[4].pImageInfo = images[kTexCube];
@@ -1875,8 +1909,9 @@ struct NativeRenderer::Impl
             vkCmdBindIndexBuffer(cb, indices.buffer, 0, VK_INDEX_TYPE_UINT32);
             rec.valid = true;
         }
-        uint32_t dynOff = uint32_t(constBase + constUsed * constStride);
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout, 0, 1, &set, 1, &dynOff);
+        const uint32_t drawIndex = uint32_t((constBase + constUsed * constStride) / constStride);   // DrawIndexedConsts
+        if (set != boundSet) { vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout, 0, 1, &set, 0, nullptr); boundSet = set; }
+        vkCmdPushConstants(cb, pipeLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4, &drawIndex);
         VkRect2D scissor{ { scx0, scy0 }, { uint32_t(scx1 - scx0), uint32_t(scy1 - scy0) } };
         if (fresh || memcmp(&scissor, &rec.scissor, sizeof(scissor))) { vkCmdSetScissor(cb, 0, 1, &scissor); rec.scissor = scissor; }
         float bc[4];
@@ -1900,6 +1935,14 @@ struct NativeRenderer::Impl
         }
         Mark(NativeProfile::kGpuDraws);
         vkCmdDrawIndexed(cb, triIndices, 1, uint32_t(indexAt / 4), 0, 0);
+        if (drawProf && tsPool && recording && this->slots[cur].tsN + 1 < kMaxTs)
+        {
+            Slot& sl = this->slots[cur];
+            vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, tsPool, kMaxTs * cur + sl.tsN++);
+            sl.tsKinds.push_back(uint8_t(gpuKind));
+            sl.tsDraw.push_back(int32_t(sl.drawInfo.size()));
+            sl.drawInfo.push_back({ vsHash, ps ? psHash : 0, uint64_t(areaW) << 32 | areaH, uint64_t(boundSamples) << 32 | triIndices });
+        }
         ++constUsed;
         ++stats->draws;
         lap.To(NativeProfile::kDrawRecord);
@@ -1996,6 +2039,7 @@ bool NativeRenderer::Init(Device& dev, const Buffer& guestMemory, std::string* e
     auto flag = [](const char* e, bool dflt) { return e && *e ? strcmp(e, "0") != 0 : dflt; };
     I.translate.hwSampler = flag(Hc09Env("HC09_GPU_HWSAMPLER"), !exact);
     I.translate.fastMath = flag(Hc09Env("HC09_GPU_FASTMATH"), !exact);
+    { const char* e = Hc09Env("HC09_NATIVE_RELAXED"); I.translate.relaxed = exact ? 0u : e ? uint32_t(atoi(e)) : 0u; }
     I.translate.hostRt = true;
     I.msaa = flag(Hc09Env("HC09_NATIVE_MSAA"), true);
     if (const char* e = Hc09Env("HC09_NATIVE_MSAA"); e && *e)
@@ -2007,7 +2051,8 @@ bool NativeRenderer::Init(Device& dev, const Buffer& guestMemory, std::string* e
     }
     if (const char* e = Hc09Env("HC09_SCALE"); e && *e) I.scale = uint32_t(std::clamp(atoi(e), 1, 4));
     I.scaledFetch = flag(Hc09Env("HC09_NATIVE_SCALED_FETCH"), true);
-    I.prof = flag(Hc09Env("HC09_NATIVE_PROF"), false);
+    I.drawProf = flag(Hc09Env("HC09_NATIVE_DRAW_PROF"), false);
+    I.prof = flag(Hc09Env("HC09_NATIVE_PROF"), false) || I.drawProf;
     I.trimConsts = flag(Hc09Env("HC09_NATIVE_TRIM_CONSTS"), true);
     I.indexCache = flag(Hc09Env("HC09_NATIVE_INDEX_CACHE"), true);
     I.resolveGpu = flag(Hc09Env("HC09_NATIVE_RESOLVE_GPU"), true);
@@ -2038,7 +2083,7 @@ bool NativeRenderer::Init(Device& dev, const Buffer& guestMemory, std::string* e
     // Draw descriptors: as vk_edram without binding 3 (EDRAM).
     VkDescriptorSetLayoutBinding b[8]{};
     b[0] = { 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr };
-    b[1] = { 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr };
+    b[1] = { 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr };
     b[2] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr };
     b[3] = { 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr };
     b[4] = { 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr };
@@ -2047,13 +2092,21 @@ bool NativeRenderer::Init(Device& dev, const Buffer& guestMemory, std::string* e
     VkDescriptorSetLayoutCreateInfo lci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
     lci.bindingCount = 8;
     lci.pBindings = b;
+    // Update-after-bind pool: the 192 texture bindings count against the update-after-bind limits (Intel: 64
+    // samplers per stage otherwise). Descriptors are still all written before the set is bound.
+    const bool uab = flag(Hc09Env("HC09_NATIVE_UAB"), true);   // dev A/B switch
+    if (uab) lci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+    VkPushConstantRange pcr{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4 };
     VkPipelineLayoutCreateInfo pci{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
     pci.setLayoutCount = 1;
     pci.pSetLayouts = &I.setLayout;
+    pci.pushConstantRangeCount = 1;
+    pci.pPushConstantRanges = &pcr;
     VkDescriptorPoolSize sizes[3] = { { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kMaxSets },
-                                      { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, kMaxSets },
-                                      { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxSets * 32 * kTexKinds * 2 } };
+                                      { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kMaxSets },
+                                      { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxSets / 2 * 32 * kTexKinds * 2 } };   // under Intel's 1M update-after-bind descriptors in all pools (x kSlots)
     VkDescriptorPoolCreateInfo dpi{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    if (uab) dpi.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     dpi.maxSets = kMaxSets;
     dpi.poolSizeCount = 3;
     dpi.pPoolSizes = sizes;
@@ -2074,7 +2127,10 @@ bool NativeRenderer::Init(Device& dev, const Buffer& guestMemory, std::string* e
         if (vkCreateDescriptorPool(d, &cpi, nullptr, &sl.computePool) != VK_SUCCESS) { if (err) *err = "compute pool"; return false; }
 
     VkDeviceSize align = std::max<VkDeviceSize>(16, dev.props.limits.minStorageBufferOffsetAlignment);
-    I.constStride = (sizeof(DrawConsts) + align - 1) / align * align;
+    // An array of DrawConsts (the shaders index it with the draw number, DrawIndexedConsts): no offset alignment.
+    static_assert(sizeof(DrawConsts) % 16 == 0, "std430 array stride");
+    (void)align;
+    I.constStride = sizeof(DrawConsts);
     VkMemoryPropertyFlags hv = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     if (!dev.CreateBuffer(I.constStride * kMaxDraws * kSlots, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, hv, I.consts) ||
         !dev.CreateBuffer(kIndexRingBytes * kSlots + kIndexCacheBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, hv, I.indices))
@@ -2102,7 +2158,14 @@ bool NativeRenderer::Init(Device& dev, const Buffer& guestMemory, std::string* e
             vkCreatePipelineCache(d, &pcci, nullptr, &I.pipelineCache);
         }
     }
-    I.rectGs = I.Module(RectListGeometryShader(), Stage::kGeometry, "rectlist_gs");
+    {   // the rectangle geometry shader reads a prefix of the constants: padded to the whole struct for the array
+        std::string gs = RectListGeometryShader();
+        const std::string last = "vec4 rtSize;";
+        size_t at = gs.find(last);
+        const size_t pad = (sizeof(DrawConsts) - (offsetof(DrawConsts, rtSize) + 16)) / 16;
+        if (at != std::string::npos) gs.insert(at + last.size(), " vec4 xePad[" + std::to_string(pad) + "];");
+        I.rectGs = I.Module(DrawIndexedConsts(gs), Stage::kGeometry, "rectlist_gs");
+    }
     I.nullPs = I.Module(HostNullPixelShader(), Stage::kFragment, "ps_null_native");
     if (!I.rectGs || !I.nullPs) { if (err) *err = "built-in shaders failed to compile"; return false; }
 
@@ -2255,6 +2318,25 @@ void NativeRenderer::EndFrame()
     if (I.frame % 60 == 0)   // index cache entries unused for 600 frames (their cache space comes back at the next reset)
         for (auto it = I.indexEntries.begin(); it != I.indexEntries.end();)
             it = it->second.lastUsed + 600 < I.frame ? I.indexEntries.erase(it) : std::next(it);
+    if (I.drawProf && I.frame % 600 == 0 && !I.drawTimes.empty())
+    {
+        std::vector<std::pair<double, std::array<uint64_t, 4>>> top;
+        double all = 0;
+        for (auto& [k, v] : I.drawTimes) { top.push_back({ v.first, k }); all += v.first; }
+        std::sort(top.begin(), top.end(), [](auto& a, auto& b) { return a.first > b.first; });
+        fprintf(stderr, "[native-draws] GPU time in draws over 600 frames: %.2f ms/frame in %zu shader/target kinds; the top:\n",
+                1000.0 * all / 600.0, top.size());
+        for (size_t i = 0; i < top.size() && i < 15; ++i)
+        {
+            const auto& k = top[i].second;
+            const auto& v = I.drawTimes[k];
+            fprintf(stderr, "[native-draws]   %6.2f ms/frame %5.1f draws/frame %7.0f indices/draw  vs %016llX ps %016llX  %ux%u x%llu\n",
+                    1000.0 * v.first / 600.0, double(v.second) / 600.0, double(I.drawIndices[k]) / double(v.second ? v.second : 1),
+                    (unsigned long long)k[0], (unsigned long long)k[1], uint32_t(k[2] >> 32), uint32_t(k[2]), (unsigned long long)k[3]);
+        }
+        I.drawTimes.clear();
+        I.drawIndices.clear();
+    }
     if (I.prof && I.frame % 600 == 0)
     {
         fprintf(stderr, "[native-prof] index cache per frame: %.0f draws from the cache, %.1f converted into it, %.0f rewritten (ring);"

@@ -29,6 +29,11 @@ uint64_t GuestTimeBase();
 struct PPCContext;
 [[noreturn]] void GuestBadIndirect(PPCContext& ctx, uint32_t target);
 
+// A branch the recompiler could not resolve (into the middle of another function: the generated code returns there
+// instead). Reported once per address when it runs (runtime.cpp), so a player's log names it.
+void GuestUnresolvedBranch(uint32_t target, uint32_t function);
+#define PPC_UNRESOLVED_BRANCH(target, function) GuestUnresolvedBranch(target, function)
+
 #define PPC_CALL_INDIRECT_FUNC(x)                                              \
     do {                                                                       \
         uint32_t _t = (uint32_t)(x);                                           \

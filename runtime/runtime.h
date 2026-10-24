@@ -29,6 +29,11 @@ inline void GStore16(uint32_t ea, uint16_t v) { *(volatile uint16_t*)(g_base + e
 inline void GStore32(uint32_t ea, uint32_t v) { *(volatile uint32_t*)(g_base + ea) = __builtin_bswap32(v); }
 inline void GStore64(uint32_t ea, uint64_t v) { *(volatile uint64_t*)(g_base + ea) = __builtin_bswap64(v); }
 
+// Name a host thread for Windows tools (nullptr = the calling thread; runtime.cpp).
+void HostSetThreadName(void* thread, const char* name);
+// A host thread's priority on Windows' scale (-2..2, 15, -15; nullptr = the calling thread; runtime.cpp).
+void HostSetThreadPriority(void* thread, int priority);
+
 // Simple bump allocator over a reserved slice of guest memory. Thread-safe.
 uint32_t GuestAlloc(uint32_t size, uint32_t align = 16);
 // Physical (GPU-visible) memory; returns a 0xA0000000-based virtual address,

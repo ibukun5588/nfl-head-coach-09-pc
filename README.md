@@ -29,7 +29,7 @@ the game's folder to a USB drive; with a PC disc drive that reads Xbox 360 discs
 
 ## Installing
 
-1. Download `HC09-PC-Setup-1.1.0.zip` from the [Releases](../../releases) page and unzip it anywhere.
+1. Download `HC09-PC-Setup-1.1.1.zip` from the [Releases](../../releases) page and unzip it anywhere.
 2. Run **HC09Setup.exe**. Windows may say it protected your PC (the program is not signed): press
    *More info* > *Run anyway*.
 3. **Your game**: press **Folder...** and choose the folder with `default.xex` and the five `qkl_*.ast` files.
@@ -50,8 +50,8 @@ If some of your game files differ from the retail ones (modified files), setup n
 - **Game**: your game folder, the **game version** (1.0 the original, or 1.2 with the title update; 1.2 plays
   differently and is the better one for careers), the title update, and an optional check for new versions.
 - **Display**: renderer (*Native* is fast and the default; *Emulated* is accurate but slow), resolution up to 4K,
-  anti-aliasing, frame rate (**60 by default**, up to 240), V-sync, fullscreen. *Alt+Enter* or *F11* switches
-  fullscreen while playing.
+  anti-aliasing, frame rate (**60 by default**, up to 240), V-sync, fullscreen, and the graphics card when the PC
+  has two. *Alt+Enter* or *F11* switches fullscreen while playing.
 - **Controls**: which controller to use, Xbox or PlayStation button icons, keyboard on/off, sound, and a test panel
   that shows your controller's buttons and sticks live.
 - **Saves**: shared saves for both game versions, copying saves between them, **Open saves folder** (one folder per
@@ -69,6 +69,33 @@ If some of your game files differ from the retail ones (modified files), setup n
   for it to get PlayStation icons.
 - Keyboard: arrows = D-pad, W A S D = left stick, numpad 8 4 2 6 = right stick, Space = A, Esc = B, J = X, I = Y,
   Enter = START, Backspace = BACK, Q / E = LB / RB, Z / C = LT / RT.
+
+## Steam Deck (and Linux)
+
+The Windows version runs through Proton, Steam's compatibility layer. (Tested with Wine on Linux; reports from
+Deck owners are welcome.)
+
+1. Switch to **Desktop Mode**. Copy your game folder (`default.xex` and the five `qkl_*.ast` files) to the Deck,
+   for example to `/home/deck/Games/HC09 game`, and unzip the release download there too.
+2. In Steam: **Games > Add a Non-Steam Game to My Library**, *Browse*, show *All files*, and pick `HC09Setup.exe`.
+   In the new entry's **Properties > Compatibility**, tick *Force the use of a specific Steam Play compatibility tool*
+   and choose **Proton Experimental** (or Proton 9 or newer). Start it from Steam.
+3. In setup: for **Your game** choose the game folder (it is on drive `Z:`, e.g. `Z:\home\deck\Games\HC09 game`); for
+   **Install to** choose a folder on `Z:` too, e.g. `Z:\home\deck\Games\NFL Head Coach 09`. Press **Install**: building
+   takes about 12-15 minutes per game version on the Deck.
+4. Add **`hc09-launcher.exe`** from that install folder to Steam the same way (Proton forced as above). This is the
+   entry to play from, also in Game Mode, where the Deck's controls act as an Xbox controller.
+5. The first time, the launcher offers the **Steam Deck settings** (60 fps, fullscreen, V-sync, no anti-aliasing):
+   say *Yes*. In Game Mode, open the performance menu (the *...* button) and set the **refresh rate to 60 Hz** for the
+   game; the OLED model runs at 90 Hz otherwise, which makes 60 fps uneven.
+
+Your saves are in the launcher's Proton folder (Steam keeps one per added program); **Saves > Open saves folder**
+in the launcher shows them.
+
+## Laptops
+
+On battery the launcher offers the **Laptop settings** once (60 fps, V-sync, no anti-aliasing, and the integrated
+graphics when the laptop has two). **Display > Graphics card** picks the card by hand.
 
 ## Xenia patches
 
@@ -134,6 +161,8 @@ PlayStation controllers: see [Controllers](#controllers). The game can show Play
 - **Xbox LIVE** features do not work.
 - The Colts' stadium screen (jumbotron) shows a blank panel: the art is missing in the game's own files.
 - The *Emulated* renderer is for checking accuracy and is much slower than *Native*.
+- **Intel integrated graphics:** on at least one Intel UHD 630 (driver 101.2125) the picture is wrong (missing
+  textures, wrong colours); being looked into. NVIDIA and AMD graphics are fine.
 - Each game version takes a few minutes to build when installing, and needs the processor and graphics card listed
   above; setup and the game say plainly what is missing.
 - Antivirus programs and Windows SmartScreen may warn about unsigned programs; the build step also runs a compiler

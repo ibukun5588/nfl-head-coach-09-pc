@@ -142,8 +142,8 @@ struct NativeSink : ReplaySink, d3dn::Backend
         std::string err;
         if (!dev.CreateInstance({}, &err) || !dev.CreateDevice(VK_NULL_HANDLE, &err)) { fprintf(stderr, "[native] %s\n", err.c_str()); return false; }
         VkMemoryPropertyFlags cached = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
-        if (!dev.CreateBuffer(kPhysSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, cached, guest) &&
-            !dev.CreateBuffer(kPhysSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        if (!dev.CreateBuffer(kPhysSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, cached, guest) &&
+            !dev.CreateBuffer(kPhysSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, guest))
         { fprintf(stderr, "[native] cannot allocate guest memory\n"); return false; }
         memset(guest.mapped, 0, kPhysSize);

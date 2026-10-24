@@ -415,7 +415,7 @@ if(WIN32)
                                tools/launcher/xenia_patch.cpp)
   add_dependencies(hc09-launcher hc09_build_id)
   target_include_directories(hc09-launcher PRIVATE "${CMAKE_SOURCE_DIR}/runtime")
-  target_link_libraries(hc09-launcher PRIVATE bcrypt comctl32 shell32 ole32 winhttp)
+  target_link_libraries(hc09-launcher PRIVATE bcrypt comctl32 shell32 ole32 winhttp dxgi)
   # HC09_RELEASE_VERSION (e.g. 0.1.0): the version a release is published as (GitHub tag v<version>); the launcher's
   # optional update check compares it with the latest release. Empty (development builds): no check.
   set(HC09_RELEASE_VERSION "" CACHE STRING "Release version (GitHub tag without the v); empty: a development build")
@@ -451,11 +451,11 @@ if(WIN32)
     "/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'")
 
   # The icon (resource 1) of hc09.exe (hc09rt.dll in the split build: the game window loads it from there, so the
-  # player-built hc09.exe and kit.ini's hashes stay as they are), the launcher and the installer: res/hc09-release.ico,
-  # our own design (tools/make_icon.py, 2026-10-23). An optional private res/hc09.ico (never shipped,
-  # gitignored) replaces it in development builds.
+  # player-built hc09.exe and kit.ini's hashes stay as they are), the launcher and the installer: res/hc09.ico when it
+  # exists (the game's cover art; gitignored, not in the public source; in the release builds since 1.1.1,
+  # 2026-10-24), else res/hc09-release.ico, our own design (tools/make_icon.py).
   set(_hc09_icon "${CMAKE_SOURCE_DIR}/res/hc09-release.ico")
-  if(HC09_DEV_TOOLS AND EXISTS "${CMAKE_SOURCE_DIR}/res/hc09.ico")
+  if(EXISTS "${CMAKE_SOURCE_DIR}/res/hc09.ico")
     set(_hc09_icon "${CMAKE_SOURCE_DIR}/res/hc09.ico")
   endif()
   if(EXISTS "${_hc09_icon}")

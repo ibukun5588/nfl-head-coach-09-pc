@@ -49,6 +49,7 @@ static void DumpAudioCoreSlots(uint64_t call)
 
 void PumpMain(std::shared_ptr<RenderClient> rc)
 {
+    HostSetThreadName(nullptr, "hc09 audio pump");
     using namespace std::chrono;
     constexpr auto kFrame = microseconds(5333); // 256 samples @ 48 kHz
     auto next = steady_clock::now();

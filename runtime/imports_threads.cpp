@@ -218,6 +218,10 @@ void ThreadMain(std::shared_ptr<KObject> self)
     auto& th = *self->thread;
     t_self = self;
     ProfilerRegisterThread(th.tid);
+    {   // the OS thread's name: the game's (it names most threads before they run), else "guest <tid>"
+        std::string n = KernelThreadName(th.tid);
+        HostSetThreadName(nullptr, (n.empty() ? "guest " + std::to_string(th.tid) : n).c_str());
+    }
 
     // Honor CREATE_SUSPENDED: wait until resumed.
     {
@@ -301,8 +305,16 @@ std::string KernelThreadName(uint64_t tid)
 }
 void KernelSetThreadName(uint64_t tid, const std::string& name)
 {
-    std::lock_guard<std::mutex> lk(g_nameMu);
-    g_threadNames[tid] = name;
+    {
+        std::lock_guard<std::mutex> lk(g_nameMu);
+        g_threadNames[tid] = name;
+    }
+    const std::string& os = name;
+    if (tid == KernelCurrentTid()) { HostSetThreadName(nullptr, os.c_str()); return; }
+    std::lock_guard<std::mutex> lk(g_dispMu);   // a running thread named by another one
+    for (auto& o : g_allThreads)
+        if (o->thread && o->thread->tid == tid && o->thread->host.joinable())
+            HostSetThreadName((void*)o->thread->host.native_handle(), os.c_str());
 }
 
 // ---- HC09_TRACE_WAITS=1: where guest threads block ---------------------------
@@ -613,7 +625,29 @@ PPC_FUNC(__imp__KeSetAffinityThread)
     if (ctx.r5.u32) GStore32(ctx.r5.u32, old);
     ctx.r3.u64 = old;
 }
-PPC_FUNC(__imp__KeSetBasePriorityThread) { ImportLog("KeSetBasePriorityThread"); ctx.r3.u64 = 0; }
+// LONG KeSetBasePriorityThread(PKTHREAD r3, LONG increment r4): the old increment. The game raises or lowers some
+// of its threads on the scale Windows uses too (-2..+2, 15 time critical, -15 idle). HC09_THREAD_PRIORITY=game gives
+// the host thread that priority (SetThreadPriority); otherwise it is recorded and logged only (M12 step 3).
+PPC_FUNC(__imp__KeSetBasePriorityThread)
+{
+    ImportLog("KeSetBasePriorityThread");
+    static const bool apply = [] { const char* e = Hc09Env("HC09_THREAD_PRIORITY"); return e && !strcmp(e, "game"); }();
+    int32_t inc = ctx.r4.s32;
+    std::lock_guard<std::mutex> lk(g_dispMu);
+    auto o = ByGuest(ctx.r3.u32);
+    int32_t old = 0;
+    if (o && o->thread)
+    {
+        auto& th = *o->thread;
+        old = th.basePriority;
+        th.basePriority = inc;
+        void* h = th.host.joinable() ? (void*)th.host.native_handle() : (o == t_self ? nullptr : (void*)-1);
+        if (apply && h != (void*)-1) HostSetThreadPriority(h, inc);
+        fprintf(stderr, "[kernel] KeSetBasePriorityThread: tid %llu \"%s\" %d -> %d%s\n", (unsigned long long)th.tid,
+                KernelThreadName(th.tid).c_str(), old, inc, apply ? " (applied)" : "");
+    }
+    ctx.r3.u64 = uint64_t(int64_t(old));
+}
 
 // VOID KeDelayExecutionThread(mode r3, alertable r4, PLARGE_INTEGER interval r5)
 PPC_FUNC(__imp__KeDelayExecutionThread)

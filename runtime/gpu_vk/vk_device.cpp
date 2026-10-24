@@ -3,7 +3,9 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
+#include <string>
 
 namespace hc09vk {
 
@@ -106,6 +108,20 @@ bool Device::CreateDevice(VkSurfaceKHR surface, std::string* err)
     vkEnumeratePhysicalDevices(instance, &n, nullptr);
     std::vector<VkPhysicalDevice> devs(n);
     vkEnumeratePhysicalDevices(instance, &n, devs.data());
+    // HC09_GPU (hc09.ini [display] gpu): auto (a discrete GPU, else an integrated one), discrete, integrated, or
+    // part of the device's name (any case). A choice that matches no device that can present falls back to auto.
+    std::string want;
+    if (const char* e = Hc09Env("HC09_GPU"))
+        for (const char* c = e; *c; ++c) want += char(tolower((unsigned char)*c));
+    auto wanted = [&](const VkPhysicalDeviceProperties& p)
+    {
+        if (want.empty() || want == "auto") return false;
+        if (want == "discrete") return p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+        if (want == "integrated") return p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+        std::string name;
+        for (const char* c = p.deviceName; *c; ++c) name += char(tolower((unsigned char)*c));
+        return name.find(want) != std::string::npos;
+    };
     int best = -1;
     uint32_t bestFamily = 0;
     int bestScore = -1;
@@ -125,6 +141,7 @@ bool Device::CreateDevice(VkSurfaceKHR surface, std::string* err)
             if (surface) vkGetPhysicalDeviceSurfaceSupportKHR(devs[i], f, surface, &present);
             if (!present) continue;
             int score = p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 2 : p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 1 : 0;
+            if (wanted(p)) score += 10;
             if (score > bestScore) { bestScore = score; best = int(i); bestFamily = f; }
             break;
         }

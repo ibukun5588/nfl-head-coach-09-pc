@@ -861,6 +861,7 @@ struct Emitter
     int indent = 1;
 
     bool hwSampler = false;   // hardware samplers instead of the software's sampling (xeSample)
+    uint32_t relaxed = 0;     // TranslateOptions::relaxed
 
     Emitter(const ShaderCode& c, TranslatedShader& o) : code(c), out(o), vs(c.type == ShaderType::kVertex) {}
 
@@ -935,7 +936,7 @@ struct Emitter
         Line("{   // " + std::to_string(ia) + ": vec" + std::to_string(vop) + " sca" + std::to_string(sop));
         ++indent;
         if (predicated) { Line(std::string("if (p == ") + (Bits(in[1], 27, 1) ? "true" : "false") + ") {"); ++indent; }
-        Line("precise vec4 v = vec4(0.0);");
+        Line((relaxed & 2) ? "vec4 v = vec4(0.0);" : "precise vec4 v = vec4(0.0);");
         if (vResMask || (vop >= 20 && vop <= 27) || vop == 29)
         {
             std::string s[3];
@@ -1431,10 +1432,10 @@ uint ocWritten = 0u;
 // Pixel shader of the native renderer (host render targets) around a translated
 // body: colour exports to the attachments, alpha test and kill by discard; depth,
 // stencil and blending are the pipeline's fixed function.
-std::string HostPixelShader(const std::string& body, uint32_t temps, bool fast, uint32_t exportMask)
+std::string HostPixelShader(const std::string& body, uint32_t temps, bool fast, uint32_t exportMask, uint32_t relaxed)
 {
     std::string g = Prelude(fast);
-    g += "precise vec4 r[" + std::to_string(temps) + "];\n";
+    g += std::string((relaxed & 2) ? "" : "precise ") + "vec4 r[" + std::to_string(temps) + "];\n";
     g += "layout(location = 0) in vec4 vin[16];\n";
     g += "layout(location = 16) noperspective in float xeZ;   // unused: matches the vertex shader's interface\n";
     for (int i = 0; i < 4; ++i)
@@ -1456,8 +1457,14 @@ void main()
     g += "    for (int k = 0; k < " + std::to_string(temps) + "; ++k) r[k] = vec4(0.0);\n";
     g += "    for (int k = 0; k < 16; ++k) if (uint(k) < D.interpCount) r[k] = vin[k];\n";
     // The pixel position in the game's pixels (resolution scale: D.fragScale = 1 / s).
-    g += "    if ((D.paramGen >> 31) != 0u && (D.paramGen & 0xFFu) < " + std::to_string(temps) +
-         "u) r[D.paramGen & 0xFFu] = vec4(gl_FragCoord.xy * D.fragScale, 0.0, 0.0);\n";
+    // Constant indices only, so r[] can stay in registers: a dynamic index put the whole array in scratch memory on
+    // Intel (draws of a main-menu frame 168 -> 28 ms on a UHD 630, M12 step 4); the same result.
+    if (temps <= 16)
+        g += "    if ((D.paramGen >> 31) != 0u) for (int k = 0; k < " + std::to_string(temps) +
+             "; ++k) if (uint(k) == (D.paramGen & 0xFFu)) r[k] = vec4(gl_FragCoord.xy * D.fragScale, 0.0, 0.0);\n";
+    else
+        g += "    if ((D.paramGen >> 31) != 0u && (D.paramGen & 0xFFu) < " + std::to_string(temps) +
+             "u) r[D.paramGen & 0xFFu] = vec4(gl_FragCoord.xy * D.fragScale, 0.0, 0.0);\n";
     g += "    oc0 = vec4(0.0, 0.0, 0.0, 1.0); oc1 = vec4(0.0); oc2 = vec4(0.0); oc3 = vec4(0.0);\n";
     g += body;
     g += R"GLSL(    if (killed) discard;
@@ -1472,6 +1479,23 @@ void main()
 
 std::string HostNullPixelShader() { return "#version 450\nlayout(location = 16) noperspective in float xeZ;\nvoid main() {}\n"; }
 
+// The native renderer (host render targets): the per-draw constants are one array in a plain storage buffer, the
+// draw's element picked by a push constant, instead of a dynamic buffer offset. A set layout with no dynamic buffer
+// can be an update-after-bind one, which Intel's driver needs for the 192 texture bindings (its ordinary limit is 64
+// samplers per stage; HANDOFF_M12.md step 4). The block's members are unchanged, so `D.x` still works.
+std::string DrawIndexedConsts(std::string g)
+{
+    const std::string head = "layout(std430, set = 0, binding = 1) readonly buffer DrawConstsBlock {";
+    const std::string tail = "\n} D;\n";
+    size_t h = g.find(head);
+    size_t e = h == std::string::npos ? h : g.find(tail, h);
+    if (e == std::string::npos) return g;
+    g.replace(e, tail.size(), "\n};\nlayout(std430, set = 0, binding = 1) readonly buffer DrawConstsBlock { DrawConstsT dcs[]; };\n"
+                              "layout(push_constant) uniform XePush { uint draw; } xePush;\n#define D dcs[xePush.draw]\n");
+    g.replace(h, head.size(), "struct DrawConstsT {");
+    return g;
+}
+
 TranslatedShader TranslateShader(const ShaderCode& code, const TranslateOptions& opt)
 {
     TranslatedShader t;
@@ -1479,11 +1503,12 @@ TranslatedShader TranslateShader(const ShaderCode& code, const TranslateOptions&
     if (code.dw.size() < 3) { t.error = "empty shader"; return t; }
     Emitter e(code, t);
     e.hwSampler = opt.hwSampler;
+    e.relaxed = opt.relaxed;
     e.Program();
     uint32_t temps = e.relTemp ? 128 : std::max<uint32_t>(16, e.maxTemp + 1);
     if (!e.vs)
     {
-        t.glsl = opt.hostRt ? HostPixelShader(e.body, temps, opt.fastMath, t.exportMask)
+        t.glsl = opt.hostRt ? DrawIndexedConsts(HostPixelShader(e.body, temps, opt.fastMath, t.exportMask, opt.relaxed))
                             : EdramPixelShader(e.body, temps, opt.fastMath);
         return t;
     }
@@ -1526,7 +1551,7 @@ TranslatedShader TranslateShader(const ShaderCode& code, const TranslateOptions&
     gl_ClipDistance[2] = clipOn ? pos.w - pos.z : 1.0;
 }
 )GLSL";
-    t.glsl = std::move(g);
+    t.glsl = opt.hostRt ? DrawIndexedConsts(std::move(g)) : std::move(g);
     return t;
 }
 

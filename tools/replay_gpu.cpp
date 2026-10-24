@@ -52,7 +52,7 @@ uint8_t* GpuRenderBegin(size_t bytes)
 #else
         void* view = aligned_alloc(65536, bytes);
 #endif
-        if (!view || !g_rs->dev.ImportHostBuffer(view, bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, g_rs->guest, &err))
+        if (!view || !g_rs->dev.ImportHostBuffer(view, bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, g_rs->guest, &err))
         {
             fprintf(stderr, "[gpu] guest memory import: %s\n", view ? err.c_str() : "no section view");
             return nullptr;

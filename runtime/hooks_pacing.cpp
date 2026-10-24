@@ -277,6 +277,20 @@ PPC_FUNC(sub_828A91A8) { ClockCall(0, ctx); __imp__sub_828A91A8(ctx, base); }
 PPC_FUNC(sub_82BF4F50) { ClockCall(1, ctx); __imp__sub_82BF4F50(ctx, base); }
 PPC_FUNC(sub_82EF8078) { ClockCall(2, ctx); __imp__sub_82EF8078(ctx, base); }
 PPC_FUNC(sub_828A91C8) { ClockCall(3, ctx); __imp__sub_828A91C8(ctx, base); }
+// The GameKernel loop running on this thread: GameKernel::Loop (sub_82994848) takes the loop's lock
+// (sub_82B35BA8(loop + 8, ...), returning to 0x829948A8) at the top of every iteration. Its idle step below then
+// knows when the loop is next due: loop+72 is the period, loop+104 + loop+112 the time accumulated toward it (ns of
+// the loops' clock, sub_829940C8).
+static thread_local uint32_t t_loop = 0;
+extern "C" PPC_FUNC(__imp__sub_82B35BA8);
+PPC_FUNC(sub_82B35BA8)
+{
+    if (uint32_t(ctx.lr) == GameAddr(0x829948A8)) t_loop = ctx.r3.u32 - 8;
+    __imp__sub_82B35BA8(ctx, base);
+}
+
+double TimeWarp();
+
 PPC_FUNC(sub_82B35A60)
 {
     if (PacingOn())
@@ -286,13 +300,38 @@ PPC_FUNC(sub_82B35A60)
         if (i < kCodeWords) g_idle[i].fetch_add(1, std::memory_order_relaxed);
     }
     // sub_82B35A60(obj): *obj == 0 -> yield (sub_82DE3DB0, NtYieldExecution); else wait on it.
+    // HC09_IDLE_SLEEP_US (default 200, 0 = the game's yield): the step of the idle wait.
+    // HC09_IDLE_UNTIL_DUE (default on): a loop that is not due sleeps until 2 ms before its next tick (at most 20 ms
+    // at a time), then in idle steps: ~10 wake-ups per tick instead of one every 200 us (CPU at 60 fps -45%,
+    // docs/REPORT_LOWEND.md). HC09_IDLE_SLACK_US (2000): that margin; 500 woke too late too often (more frames
+    // missed a refresh).
     static const uint32_t sleepUs = [] {
         const char* e = Hc09Env("HC09_IDLE_SLEEP_US");
         return e && *e ? uint32_t(strtoul(e, nullptr, 10)) : 200u;
     }();
+    static const bool untilDue = [] {
+        const char* e = Hc09Env("HC09_IDLE_UNTIL_DUE");
+        return !(e && *e == '0');
+    }();
+    static const double slackUs = [] {   // HC09_IDLE_SLACK_US: how early before the tick the long sleep ends
+        const char* e = Hc09Env("HC09_IDLE_SLACK_US");
+        return e && *e ? atof(e) : 2000.0;
+    }();
     if (sleepUs && uint32_t(ctx.lr) == GameAddr(0x82994928) && GLoad32(ctx.r3.u32) == 0)
     {
-        IdleSleep(sleepUs);
+        uint32_t us = sleepUs;
+        if (untilDue && t_loop)
+        {
+            const int64_t period = int64_t(GLoad64(t_loop + 72));
+            const int64_t acc = int64_t(GLoad64(t_loop + 104) + GLoad64(t_loop + 112));
+            const double warp = TimeWarp();
+            if (period > 0 && acc < period && warp > 0)
+            {
+                const double left = double(period - acc) / 1000.0 / warp - slackUs;   // us, less the timer's slack
+                if (left > double(sleepUs)) us = uint32_t(left < 20000.0 ? left : 20000.0);
+            }
+        }
+        IdleSleep(us);
         ctx.r3.u64 = 1;   // as the yield's "yielded"; the loop ignores it
         return;
     }

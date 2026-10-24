@@ -35,6 +35,9 @@ scale = auto
 ; Multisampling (native renderer): 1 = as the game asks (4x in 3D scenes),
 ; 2 = at most 2x, 0 = off. Cheaper settings help at scale 3 on slower GPUs.
 msaa = auto
+; Graphics card, when the PC has more than one: discrete, integrated, or part of
+; the card's name (e.g. Intel). auto = a discrete card if there is one.
+gpu = auto
 
 [audio]
 ; Play the game's sound (auto = when the window is visible).

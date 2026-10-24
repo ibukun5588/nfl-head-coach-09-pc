@@ -11,6 +11,7 @@
 //             renderer   HC09_RENDERER     native (default) or emulated
 //             scale      HC09_SCALE        native renderer: resolution x1 (720p) .. x4
 //             msaa       HC09_NATIVE_MSAA  native renderer: 0 off, 1 as the game asks, 2 at most 2x
+//             gpu        HC09_GPU          auto, discrete, integrated, or part of the graphics card's name
 //   [audio]   output     HC09_AUDIO_OUT    play the game's sound
 //             volume     HC09_AUDIO_VOLUME 0.0 .. 1.0
 //   [input]   host       HC09_HOST_INPUT   controller and keyboard
@@ -67,6 +68,7 @@ constexpr Known kKnown[] = {
     { "input.host", "HC09_HOST_INPUT", true },        { "input.controller", "HC09_PAD_API", false },
     { "input.glyphs", "HC09_GLYPHS", false },         { "game.cache", "HC09_CACHE_DIR", false },
     { "input.pad", "HC09_PAD_NAME", false },          { "game.saves", "HC09_SAVES_DIR", false },
+    { "display.gpu", "HC09_GPU", false },
 };
 
 }  // namespace

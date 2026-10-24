@@ -148,6 +148,8 @@
 #define __imp__sub_829D7320 __imp__sub_829D88C0
 #define sub_82B35A60 sub_82B36E28
 #define __imp__sub_82B35A60 __imp__sub_82B36E28
+#define sub_82B35BA8 sub_82B36F70
+#define __imp__sub_82B35BA8 __imp__sub_82B36F70
 #define sub_82BF4F50 sub_82BF6338
 #define __imp__sub_82BF4F50 __imp__sub_82BF6338
 #define sub_82C57E18 sub_82C59188
@@ -171,6 +173,7 @@ inline constexpr AddrPair kAddr[] = {
     { 0x82468970, 0x824689C8 },
     { 0x824BB390, 0x824BB400 },
     { 0x828F8248, 0x828F9828 },
+    { 0x829948A8, 0x82995EB0 },
     { 0x82994928, 0x82995F30 },
     { 0x83229400, 0x83229500 },
 };

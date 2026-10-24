@@ -68,6 +68,7 @@
 #include "overlay.h"
 #include "profiler.h"
 #include "small_vec.h"
+void HostSetThreadName(void* thread, const char* name);   // runtime.cpp
 
 // gpu.cpp
 void GpuCpIdle(double* ringEmptySeconds, double* memWaitSeconds);
@@ -173,6 +174,7 @@ struct Live : xenos::DrawObserver
     void Worker()
     {
         ProfilerRegisterThread(0, "emulated renderer");
+        HostSetThreadName(nullptr, "hc09 renderer (emulated)");
         xenos::SetThreadRegisterFile(shadow.data());
         for (;;)
         {
@@ -714,6 +716,10 @@ struct NativeLive : d3dn::Backend
     std::atomic<uint64_t> feNs[3] = {};
     double lastCpIdle = 0;
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+    // Time between presented frames (ms) since the last report: its median, 99th percentile and maximum, and how
+    // many were over 17.5 ms (a missed 60 Hz frame) and 34 ms (two missed), in the [native] frame line.
+    std::vector<float> frameMs;
+    std::chrono::steady_clock::time_point lastPresentAt{};
 
     // ---- Fences from the native GPU (HC09_NATIVE_FENCES, default on; NATIVE_RENDERER.md 7.4 step 2) ----
     // D3D's completed-fence word (*(dev+10896) + 0, which its fence waits, resource locks,
@@ -950,6 +956,7 @@ struct NativeLive : d3dn::Backend
     void FenceThread()
     {
         ProfilerRegisterThread(0, "native fences");
+        HostSetThreadName(nullptr, "hc09 native fences");
         for (;;)
         {
             uint64_t value;
@@ -1388,6 +1395,7 @@ struct NativeLive : d3dn::Backend
     void Worker()
     {
         ProfilerRegisterThread(0, "native renderer");
+        HostSetThreadName(nullptr, "hc09 renderer");
         xenos::SetThreadRegisterFile(rfile.data());
         std::vector<Cmd> batch;
         std::vector<std::pair<uint32_t, uint32_t>> saved;
@@ -1521,7 +1529,11 @@ struct NativeLive : d3dn::Backend
         {
             auto tp = std::chrono::steady_clock::now();
             live->Present(*img, dump ? &dumped : nullptr, swap);
-            present += std::chrono::duration<double>(std::chrono::steady_clock::now() - tp).count();
+            const auto shown = std::chrono::steady_clock::now();
+            present += std::chrono::duration<double>(shown - tp).count();
+            if (lastPresentAt.time_since_epoch().count())
+                frameMs.push_back(float(std::chrono::duration<double, std::milli>(shown - lastPresentAt).count()));
+            lastPresentAt = shown;
         }
         double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         if (wall >= 10.0)
@@ -1534,6 +1546,19 @@ struct NativeLive : d3dn::Backend
                     (unsigned long long)swap, frames / wall, 1000.0 * busy / n, 1000.0 * present / n, 1000.0 * waitGame / n, s.draws, s.skipped,
                     s.resolves, s.textures + s.texturesOnGpu, s.pipelines, (unsigned long long)snapOverflowFrames, s.resolveAcquires,
                     s.resolveWritebacks);
+            if (!frameMs.empty())
+            {
+                std::sort(frameMs.begin(), frameMs.end());
+                const size_t k = frameMs.size();
+                const size_t over1 = size_t(frameMs.end() - std::upper_bound(frameMs.begin(), frameMs.end(), 17.5f));
+                const size_t over2 = size_t(frameMs.end() - std::upper_bound(frameMs.begin(), frameMs.end(), 34.0f));
+                // and over 1.5 periods of the frame-rate setting (a frame shown a refresh late at any rate)
+                static const double period = [] { const char* e = Hc09Env("HC09_FRAMERATE"); int n = e ? atoi(e) : 0; return n >= 10 ? 1000.0 / n : 1000.0 / 35; }();
+                const size_t late = size_t(frameMs.end() - std::upper_bound(frameMs.begin(), frameMs.end(), float(1.5 * period)));
+                fprintf(stderr, "[native] frame times: median %.2f ms, 99%% %.2f ms, max %.2f ms; %zu of %zu over 17.5 ms, %zu over 34 ms, %zu over 1.5 periods\n",
+                        frameMs[k / 2], frameMs[std::min(k - 1, k * 99 / 100)], frameMs[k - 1], over1, k, over2, late);
+                frameMs.clear();
+            }
             for (auto& [why, k] : s.skipReasons) fprintf(stderr, "[native]   skipped %u: %s\n", k, why.c_str());
             if (fencesUp)
             {
@@ -1624,6 +1649,7 @@ NativeLive* g_native = nullptr;
 // that thread does not get there (the game stopped presenting), exit anyway.
 void WindowThread(Live* l, bool show, std::promise<hc09vk::Window*> created)
 {
+    HostSetThreadName(nullptr, "hc09 window");
     hc09vk::Window* w = hc09vk::WindowCreate("NFL Head Coach 09 (hc09)", 1280, 720, show);
     if (w) hc09vk::WindowSetEscapeCloses(w, false);
     if (w && EnvOn("HC09_FULLSCREEN", false)) hc09vk::WindowSetFullscreen(w, true);   // Alt+Enter / F11 toggle
@@ -1695,7 +1721,7 @@ void GpuLiveInit(uint8_t* physicalMemory)
     bool native = NativeRendererSelected();
     NativeLive* nl = native ? new NativeLive : nullptr;
     ok = ok && l->dev.CreateDevice(l->surface, &err) &&
-         l->dev.ImportHostBuffer(physicalMemory, 0x20000000ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, l->guest, &err) &&
+         l->dev.ImportHostBuffer(physicalMemory, 0x20000000ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, l->guest, &err) &&
          (native ? nl->renderer.Init(l->dev, l->guest, &err, exact) : l->renderer.Init(l->dev, l->guest, &err, exact));
     // HC09_VSYNC=0: present without waiting for the display (mailbox or
     // immediate). The game still paces itself to its own 60 Hz vblank.

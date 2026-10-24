@@ -24,6 +24,7 @@
 #include <shlobj.h>
 #include <shellapi.h>
 #include <winhttp.h>
+#include <dxgi.h>
 #include <intrin.h>
 
 #include <algorithm>
@@ -291,7 +292,7 @@ enum : int
     kRoot = 100, kBrowse, kFilesStatus, kRenderer, kScale, kMsaa, kRate, kVsync, kFullscreen, kSound, kVolume, kInput,
     kPlay, kSave, kQuit, kStatus, kOpenLog, kVersion, kTu, kTuBrowse, kTuStatus, kShareSaves, kCopySaves,
     kTabs, kProfile, kProfileSave, kProfileDelete, kPad, kGlyphs, kPadPanel, kPs3Import, kPs3Export, kExportPick, kSavesInfo,
-    kUpdateCheck, kOpenSaves, kPatchList, kPatchFolder, kPatchReload, kPatchVersion, kPatchInfo, kPatchLock,
+    kUpdateCheck, kOpenSaves, kPatchList, kPatchFolder, kPatchReload, kPatchVersion, kPatchInfo, kPatchLock, kGpu,
 };
 constexpr UINT kUpdateFound = WM_APP + 2;
 constexpr UINT kPatchBuildLine = WM_APP + 3;   // lp: a std::wstring* status line from the patched build
@@ -322,6 +323,8 @@ struct App
     int page = kPageGame, building = -1;                // the tab shown; the tab Make() is placing controls on
     std::vector<std::pair<HWND, int>> pageCtl;          // each tab's controls
     PadTester pads;
+    std::vector<std::wstring> gpus;                     // the Graphics card list after "Automatic" (DXGI adapters)
+    std::wstring integratedGpu;                         // the one with little memory of its own (< 512 MB), if any
     bool padsReady = false;
     std::vector<PadEntry> padList;                      // the Controller list after "Automatic"
     std::string padChoice = "auto";                     // hc09.ini [input] pad
@@ -517,6 +520,13 @@ void ApplyControls(const Getter& get)
     Select(kRate, ri);
     Check(kVsync, OnOff(get("display", "vsync", "on"), true));
     Check(kFullscreen, OnOff(get("display", "fullscreen", "off"), false));
+    {   // [display] gpu: auto, integrated, discrete, or (part of) a card's name
+        std::string gv = Lower(get("display", "gpu", "auto"));
+        int gi = 0;
+        for (size_t i = 0; i < g.gpus.size() && gv != "auto" && !gv.empty(); ++i)
+            if (Lower(Narrow(g.gpus[i])).find(gv) != std::string::npos || gv.find(Lower(Narrow(g.gpus[i]))) != std::string::npos) gi = int(i) + 1;
+        Select(kGpu, gi);
+    }
     Check(kSound, OnOff(get("audio", "output", "auto"), true));
     double vol = atof(get("audio", "volume", "1.0").c_str());
     SendMessageW(g.Ctl(kVolume), TBM_SETPOS, TRUE, LPARAM(std::clamp(int(vol * 100 + 0.5), 0, 100)));
@@ -537,6 +547,8 @@ std::vector<std::array<std::string, 3>> CollectControls()
     v.push_back({ "display", "framerate", ri == 0 ? "auto" : std::to_string(kRateValues[ri]) });
     v.push_back({ "display", "vsync", Checked(kVsync) ? "on" : "off" });
     v.push_back({ "display", "fullscreen", Checked(kFullscreen) ? "on" : "off" });
+    int gpuSel = Sel(kGpu);
+    v.push_back({ "display", "gpu", gpuSel > 0 && size_t(gpuSel) <= g.gpus.size() ? Narrow(g.gpus[gpuSel - 1]) : "auto" });
     v.push_back({ "audio", "output", Checked(kSound) ? "on" : "off" });
     char vol[16];
     snprintf(vol, sizeof(vol), "%.2f", int(SendMessageW(g.Ctl(kVolume), TBM_GETPOS, 0, 0)) / 100.0);
@@ -545,6 +557,94 @@ std::vector<std::array<std::string, 3>> CollectControls()
     v.push_back({ "input", "glyphs", Sel(kGlyphs) == 1 ? "playstation" : Sel(kGlyphs) == 2 ? "xbox" : "auto" });
     v.push_back({ "input", "pad", g.padChoice });
     return v;
+}
+
+// ---- graphics cards and built-in profiles (M12 steps 5-6) ----
+// The PC's graphics cards by name (DXGI; software adapters left out), in the order Windows lists them.
+std::vector<std::wstring> GraphicsCards()
+{
+    std::vector<std::wstring> out;
+    IDXGIFactory1* f = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&f)))) return out;
+    IDXGIAdapter1* a = nullptr;
+    for (UINT i = 0; f->EnumAdapters1(i, &a) != DXGI_ERROR_NOT_FOUND; ++i)
+    {
+        DXGI_ADAPTER_DESC1 d{};
+        if (SUCCEEDED(a->GetDesc1(&d)) && !(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) &&
+            std::find(out.begin(), out.end(), std::wstring(d.Description)) == out.end())
+        {
+            out.push_back(d.Description);
+            if (d.DedicatedVideoMemory < (512ull << 20) && g.integratedGpu.empty()) g.integratedGpu = d.Description;
+        }
+        a->Release();
+    }
+    f->Release();
+    return out;
+}
+std::string CpuBrand()
+{
+    int r[4];
+    char brand[49] = {};
+    __cpuid(r, int(0x80000000));
+    if (unsigned(r[0]) < 0x80000004u) return "";
+    for (int i = 0; i < 3; ++i) { __cpuid(r, int(0x80000002 + i)); memcpy(brand + 16 * i, r, 16); }
+    return brand;
+}
+// A Steam Deck: Steam sets SteamDeck=1 for games it starts there; else Wine/Proton with the Deck's APU
+// ("AMD Custom APU 0405", LCD; "0932", OLED).
+bool IsSteamDeck()
+{
+    char v[8] = {};
+    if (GetEnvironmentVariableA("SteamDeck", v, sizeof v) && v[0] == '1') return true;
+    HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+    bool wine = nt && GetProcAddress(nt, "wine_get_version");
+    std::string b = CpuBrand();
+    return wine && (b.find("AMD Custom APU 0405") != std::string::npos || b.find("AMD Custom APU 0932") != std::string::npos);
+}
+bool OnBattery()
+{
+    SYSTEM_POWER_STATUS ps{};
+    return GetSystemPowerStatus(&ps) && ps.ACLineStatus == 0 && ps.BatteryFlag != 128 && ps.BatteryFlag != 255;
+}
+void ProfileLoad(const std::string& name);
+bool SaveSettings();
+void FillProfiles(const std::string& current);
+// Once per device kind: offer the built-in profile (Steam Deck: a steady 60 in fullscreen, the target; laptop on
+// battery: 60 with V-sync, the integrated graphics). Written as an ordinary profile the player can change or delete.
+void SuggestProfile()
+{
+    struct Builtin { const char* key; const char* name; const wchar_t* what; std::vector<std::array<const char*, 3>> set; };
+    std::vector<Builtin> offer;
+    if (IsSteamDeck())
+        offer.push_back({ "deck", "Steam Deck", L"This looks like a Steam Deck. Use the Steam Deck settings?\n\n60 frames per second, fullscreen, "
+                          L"V-sync on, anti-aliasing off, 720p.\n\nTip: set the game's refresh rate to 60 Hz in the Deck's performance "
+                          L"menu (the OLED model runs at 90 Hz otherwise).",
+                          { { "display", "framerate", "60" }, { "display", "fullscreen", "on" }, { "display", "vsync", "on" },
+                            { "display", "msaa", "0" }, { "display", "scale", "1" }, { "display", "renderer", "native" } } });
+    else if (OnBattery())
+        offer.push_back({ "laptop", "Laptop", L"This PC is running on battery. Use the Laptop settings, which save battery?\n\n60 frames per "
+                          L"second, V-sync on, anti-aliasing off, 720p, the integrated graphics if there are two.",
+                          { { "display", "framerate", "60" }, { "display", "vsync", "on" }, { "display", "msaa", "0" },
+                            { "display", "scale", "1" }, { "display", "renderer", "native" },
+                            { "display", "gpu", "" } } });   // filled below: the integrated card's name
+    for (const Builtin& b : offer)
+    {
+        if (OnOff(g.ini.Get("launcher", std::string("offered_") + b.key, "off"), false)) continue;
+        g.ini.Set("launcher", std::string("offered_") + b.key, "on");
+        if (MessageBoxW(g.wnd, b.what, L"HC09", MB_YESNO | MB_ICONQUESTION) == IDYES)
+        {
+            std::string sec = "profile." + Lower(b.name);
+            g.ini.Set(sec, "name", b.name);
+            for (const auto& [s, k, v] : CollectControls()) g.ini.Set(sec, s + "." + k, v);   // everything else as it is
+            for (const auto& kv : b.set) g.ini.Set(sec, std::string(kv[0]) + "." + kv[1], kv[2]);
+            if (!strcmp(b.key, "laptop"))
+                g.ini.Set(sec, "display.gpu", g.gpus.size() > 1 && !g.integratedGpu.empty() ? Narrow(g.integratedGpu) : "auto");
+            FillProfiles(b.name);
+            ProfileLoad(b.name);
+            SaveSettings();
+        }
+        g.ini.Save(g.iniPath);
+    }
 }
 
 // ---- profiles ----
@@ -1382,6 +1482,23 @@ void CheckForUpdate()
     }).detach();
 }
 
+// Under Wine or Proton (Linux, the Steam Deck) Wine loads its own msvcp140/vcruntime140 instead of the copies beside
+// hc09.exe, and hc09rt.dll (VS 2022's STL) deadlocks with them as the game starts (tested 2026-10-23, Wine 10).
+// Wine's per-program setting makes it load ours: HKCU\Software\Wine\AppDefaults\hc09.exe\DllOverrides.
+void WineUseOurRuntime()
+{
+    HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+    if (!nt || !GetProcAddress(nt, "wine_get_version")) return;   // not Wine
+    HKEY k;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Wine\\AppDefaults\\hc09.exe\\DllOverrides", 0, nullptr, 0, KEY_SET_VALUE,
+                        nullptr, &k, nullptr) != ERROR_SUCCESS)
+        return;
+    const wchar_t value[] = L"native,builtin";
+    for (const wchar_t* dll : { L"msvcp140", L"msvcp140_atomic_wait", L"vcruntime140", L"vcruntime140_1" })
+        RegSetValueExW(k, dll, 0, REG_SZ, reinterpret_cast<const BYTE*>(value), DWORD(sizeof value));
+    RegCloseKey(k);
+}
+
 void Play()
 {
     if (g.running || g.patchBuilding || !SaveSettings()) return;
@@ -1436,6 +1553,7 @@ void Play()
     }
     // run in this folder (hc09.ini, the saves); the image is the version's
     std::wstring cmd = L"\"" + exe + L"\" \"" + imageRel + L"\"";
+    WineUseOurRuntime();
     PROCESS_INFORMATION pi{};
     BOOL ok = CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, g.dir.c_str(), &si, &pi);
     if (lf != INVALID_HANDLE_VALUE) CloseHandle(lf);
@@ -1559,6 +1677,13 @@ void Build()
     y += 34;
     Make(L"BUTTON", L"V-sync (no tearing)", BS_AUTOCHECKBOX | WS_TABSTOP, 138, y, 160, 20, kVsync);
     Make(L"BUTTON", L"Start in fullscreen", BS_AUTOCHECKBOX | WS_TABSTOP, 300, y, 140, 20, kFullscreen);
+    y += 30;
+    Label(L"Graphics card", 22, y + 3, 110);
+    HWND gc = Make(WC_COMBOBOXW, L"", CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, 138, y, 296, 200, kGpu);
+    SendMessageW(gc, CB_ADDSTRING, 0, LPARAM(L"Automatic (a dedicated card first)"));
+    g.gpus = GraphicsCards();
+    for (const std::wstring& n : g.gpus) SendMessageW(gc, CB_ADDSTRING, 0, LPARAM(n.c_str()));
+    EnableWindow(gc, g.gpus.size() > 1);
 
     g.building = kPageControls;
     y = 86;
@@ -1897,6 +2022,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show)
     LoadPatches();
     RefreshFiles();
     ShowWindow(g.wnd, show);
+    SuggestProfile();
     if (Checked(kUpdateCheck)) CheckForUpdate();
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0)

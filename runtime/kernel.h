@@ -45,6 +45,7 @@ struct KThread
     uint32_t  startAddr = 0, param = 0, xapiStartup = 0;
     uint32_t  stackBase = 0, stackSize = 0, pcr = 0;
     uint8_t   cpu = 0;                 // hardware thread (KPCR.current_cpu)
+    int32_t   basePriority = 0;        // KeSetBasePriorityThread's increment (-2..2, 15 time critical, -15 idle)
     uint64_t  tid = 0;
     std::atomic<int> suspendCount{ 0 };
     std::atomic<bool> finished{ false };

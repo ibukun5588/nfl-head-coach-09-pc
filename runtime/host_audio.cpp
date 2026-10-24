@@ -35,6 +35,7 @@
 #include <mmreg.h>
 
 #include <atomic>
+void HostSetThreadName(void* thread, const char* name);   // runtime.cpp
 
 namespace {
 
@@ -111,6 +112,7 @@ struct Output
     {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+        HostSetThreadName(nullptr, "hc09 audio out");
         for (int attempt = 0;; ++attempt)
         {
             if (!Session(attempt == 0)) Sleep(1000);
