@@ -325,6 +325,7 @@ struct App
     PadTester pads;
     std::vector<std::wstring> gpus;                     // the Graphics card list after "Automatic" (DXGI adapters)
     std::wstring integratedGpu;                         // the one with little memory of its own (< 512 MB), if any
+    bool amdGpu = false;                                // an AMD card among them (the Steam Deck's)
     bool padsReady = false;
     std::vector<PadEntry> padList;                      // the Controller list after "Automatic"
     std::string padChoice = "auto";                     // hc09.ini [input] pad
@@ -575,6 +576,7 @@ std::vector<std::wstring> GraphicsCards()
         {
             out.push_back(d.Description);
             if (d.DedicatedVideoMemory < (512ull << 20) && g.integratedGpu.empty()) g.integratedGpu = d.Description;
+            if (d.VendorId == 0x1002) g.amdGpu = true;
         }
         a->Release();
     }
@@ -605,6 +607,88 @@ bool OnBattery()
 {
     SYSTEM_POWER_STATUS ps{};
     return GetSystemPowerStatus(&ps) && ps.ACLineStatus == 0 && ps.BatteryFlag != 128 && ps.BatteryFlag != 255;
+}
+
+// ---- Steam Deck / Linux with AMD graphics: the renderer's memory fix (README "Steam Deck") ----
+// Under Proton the game's memory is a file-backed mapping, which the AMD Linux driver refuses to import into Vulkan
+// (black screen with sound; hc09.log "vkAllocateMemory (import)"). libhc09_userptr.so (tools/steamdeck/userptr_shim.c)
+// lifts that restriction when Proton starts with it in LD_PRELOAD. The launcher cannot add it itself (Wine does not
+// hand an LD_PRELOAD set on the Windows side to the game's Linux process, tested with Wine 10), so it shows the Steam
+// launch option to paste, with this install's path, whenever the library is not loaded.
+bool UnderWine()
+{
+    HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+    return nt && GetProcAddress(nt, "wine_get_version");
+}
+// The Linux path of a file (Wine's kernel32 wine_get_unix_file_name; empty outside Wine).
+std::string UnixPath(const std::wstring& p)
+{
+    using Fn = char*(CDECL*)(LPCWSTR);
+    auto f = reinterpret_cast<Fn>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "wine_get_unix_file_name"));
+    char* u = f ? f(p.c_str()) : nullptr;
+    if (!u) return "";
+    std::string s = u;
+    HeapFree(GetProcessHeap(), 0, u);
+    // C: comes back as <prefix>/dosdevices/c:/..., a link to <prefix>/drive_c (a colon would split LD_PRELOAD)
+    if (size_t at = s.find("/dosdevices/c:/"); at != std::string::npos) s.replace(at, 15, "/drive_c/");
+    return s;
+}
+// The launch option for this install, or empty. LD_PRELOAD separates entries by spaces and colons, so a library in a
+// folder whose path has one (the default "NFL Head Coach 09") is copied to <profile>\hc09 first.
+std::wstring ShimLaunchOption()
+{
+    std::filesystem::path so = std::filesystem::path(g.dir) / L"libhc09_userptr.so";
+    if (!std::filesystem::exists(so)) return L"";
+    std::string u = UnixPath(so.wstring());
+    if (u.find_first_of(" :") != std::string::npos)
+    {
+        wchar_t prof[MAX_PATH] = {};
+        if (!GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) return L"";
+        std::filesystem::path dir = std::filesystem::path(prof) / L"hc09";
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        std::filesystem::copy_file(so, dir / so.filename(), std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec) return L"";
+        u = UnixPath((dir / so.filename()).wstring());
+    }
+    if (u.empty() || u.find_first_of(" :\"") != std::string::npos) return L"";
+    return L"LD_PRELOAD=\"$LD_PRELOAD:" + Widen(u) + L"\" %command%";
+}
+void CopyToClipboard(const std::wstring& text)
+{
+    if (!OpenClipboard(g.wnd)) return;
+    EmptyClipboard();
+    if (HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, (text.size() + 1) * sizeof(wchar_t)))
+    {
+        memcpy(GlobalLock(h), text.c_str(), (text.size() + 1) * sizeof(wchar_t));
+        GlobalUnlock(h);
+        if (!SetClipboardData(CF_UNICODETEXT, h)) GlobalFree(h);
+    }
+    CloseClipboard();
+}
+void CheckSteamDeckFix()
+{
+    if (!UnderWine() || !g.amdGpu) return;
+    wchar_t pre[4096] = {};
+    GetEnvironmentVariableW(L"LD_PRELOAD", pre, 4096);
+    if (wcsstr(pre, L"libhc09_userptr.so")) return;   // loaded
+    if (!OnOff(g.ini.Get("launcher", "deck_fix_hint", "on"), true)) return;
+    std::wstring line = ShimLaunchOption();
+    if (line.empty()) return;
+    std::wstring msg = L"On the Steam Deck (and Linux with AMD graphics) the game needs a small fix, or it shows a black "
+                       L"screen with sound.\n\nIn Steam: this program's Properties > General > Launch options, paste:\n\n" + line +
+                       L"\n\nOK copies the line. Then close the launcher and start it from Steam again.\n"
+                       L"Cancel: do not show this again.";
+    if (MessageBoxW(g.wnd, msg.c_str(), L"HC09: Steam Deck", MB_OKCANCEL | MB_ICONINFORMATION) == IDOK)
+    {
+        CopyToClipboard(line);
+        SetStatus(L"Launch option copied: paste it into this program's launch options in Steam.");
+    }
+    else
+    {
+        g.ini.Set("launcher", "deck_fix_hint", "off");
+        g.ini.Save(g.iniPath);
+    }
 }
 void ProfileLoad(const std::string& name);
 bool SaveSettings();
@@ -1954,6 +2038,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show)
             fflush(stdout);
             return ok ? 0 : 1;
         }
+        if (argc == 2 && !wcscmp(argv[1], L"--deck-fix-line"))   // tests: the Steam Deck launch option (CheckSteamDeckFix)
+        {
+            if (AttachConsole(ATTACH_PARENT_PROCESS)) { FILE* f; freopen_s(&f, "CONOUT$", "w", stdout); }
+            wchar_t pre[4096] = {};
+            GetEnvironmentVariableW(L"LD_PRELOAD", pre, 4096);
+            printf("wine: %s; LD_PRELOAD has the fix: %s\nline: %s\n", UnderWine() ? "yes" : "no",
+                   wcsstr(pre, L"libhc09_userptr.so") ? "yes" : "no", Narrow(ShimLaunchOption()).c_str());
+            fflush(stdout);
+            return 0;
+        }
         if (argc == 2 && !wcscmp(argv[1], L"--check-update"))   // tests: what the update check sees
         {
             if (AttachConsole(ATTACH_PARENT_PROCESS)) { FILE* f; freopen_s(&f, "CONOUT$", "w", stdout); }
@@ -2023,6 +2117,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show)
     RefreshFiles();
     ShowWindow(g.wnd, show);
     SuggestProfile();
+    CheckSteamDeckFix();
     if (Checked(kUpdateCheck)) CheckForUpdate();
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0)

@@ -537,6 +537,9 @@ private:
             fs::copy_file(dest / L"kit" / exe, dest / exe, fs::copy_options::overwrite_existing, ec);
             if (ec) return Fail("cannot install " + Narrow(exe));
         }
+        // Steam Deck / AMD on Linux: the renderer's memory fix, loaded through Steam's launch options (README).
+        if (fs::exists(dest / L"kit" / L"libhc09_userptr.so"))
+            fs::copy_file(dest / L"kit" / L"libhc09_userptr.so", dest / L"libhc09_userptr.so", fs::copy_options::overwrite_existing, ec);
         // The player's documentation and the third-party licenses.
         for (const wchar_t* doc : { L"README.txt", L"THIRD-PARTY-NOTICES.txt" })
             fs::copy_file(dest / L"kit" / doc, dest / doc, fs::copy_options::overwrite_existing, ec);

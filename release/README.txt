@@ -58,13 +58,45 @@ Game       Your game folder, the game version (1.0, or 1.2 with the title update
            "Check for a new version when the launcher starts" (off unless you turn it on; it only asks GitHub
            which version is the newest).
 Display    Renderer (Native is fast and the default; Emulated is accurate but slow), resolution up to 4K,
-           anti-aliasing, frame rate (60 by default, up to 240), V-sync, fullscreen.
-           Alt+Enter or F11 switches fullscreen while playing.
+           anti-aliasing, frame rate (60 by default, up to 240), V-sync, fullscreen, and the graphics card when
+           the PC has two. Alt+Enter or F11 switches fullscreen while playing.
 Controls   Which controller to use, the button icons (Xbox or PlayStation), keyboard on/off, sound and volume, and a
            test panel that shows the controller's buttons and sticks live.
 Saves      Shared saves for both versions or one set each, copying saves between versions, Open saves folder,
            and importing or exporting PlayStation 3 (RPCS3) saves.
 Patches    Xenia game patches (see XENIA PATCHES below).
+
+On battery, the launcher offers Laptop settings once (60 fps, V-sync, no anti-aliasing, the integrated graphics).
+
+
+STEAM DECK (AND LINUX)
+----------------------
+
+The game runs through Proton, Steam's compatibility layer. Do the setup in Desktop Mode.
+
+1. Copy your game folder (default.xex and the five qkl_*.ast files) to the Deck, for example to
+   /home/deck/Games/HC09/game, and unzip this download there too.
+2. In Steam: Games > Add a Non-Steam Game to My Library, Browse, show All files, pick HC09Setup.exe. In its
+   Properties > Compatibility, force "Proton Experimental". Start it from Steam.
+3. In setup: Your game = Z:\home\deck\Games\HC09\game, Install to = Z:\home\deck\Games\HC09\install. Press Install
+   (about 5 minutes per game version on the Deck).
+4. Add hc09-launcher.exe from the install folder to Steam the same way, with Proton Experimental forced. Play from
+   this entry, also in Game Mode.
+5. The Steam Deck fix: start the launcher from Steam. It shows a line like
+       LD_PRELOAD="$LD_PRELOAD:/home/deck/Games/HC09/install/libhc09_userptr.so" %command%
+   Press OK to copy it, close the launcher, and paste it into the launcher entry's Properties > General > Launch
+   options. Without it the game shows a black screen with sound (the Deck's graphics driver refuses the way the game
+   hands its memory to the GPU under Proton; the small libhc09_userptr.so beside the launcher lifts that). Keep the
+   "$LD_PRELOAD: part: Steam's overlay uses the same setting.
+6. Start the launcher again, say Yes to the Steam Deck settings (60 fps, fullscreen, no anti-aliasing), pick game
+   version 1.2 and press Play. On the OLED model set the refresh rate to 60 Hz in the Deck's performance menu.
+
+Updating from 1.1.1: run the new HC09Setup.exe from Steam and install into the same folder, then do step 5 once.
+
+Black screen with sound          the launch option of step 5 is missing or mistyped
+Steam / ... buttons do nothing   keep "$LD_PRELOAD: at the start of the launch option
+Login loop after a big SteamOS   sudo mv /etc/sddm.conf.d/zz-holo-autologin.conf ~/
+update                           sudo systemctl restart sddm
 
 
 CONTROLLERS

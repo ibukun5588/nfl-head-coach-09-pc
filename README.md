@@ -29,7 +29,7 @@ the game's folder to a USB drive; with a PC disc drive that reads Xbox 360 discs
 
 ## Installing
 
-1. Download `HC09-PC-Setup-1.1.1.zip` from the [Releases](../../releases) page and unzip it anywhere.
+1. Download `HC09-PC-Setup-1.1.2.zip` from the [Releases](../../releases) page and unzip it anywhere.
 2. Run **HC09Setup.exe**. Windows may say it protected your PC (the program is not signed): press
    *More info* > *Run anyway*.
 3. **Your game**: press **Folder...** and choose the folder with `default.xex` and the five `qkl_*.ast` files.
@@ -72,25 +72,45 @@ If some of your game files differ from the retail ones (modified files), setup n
 
 ## Steam Deck (and Linux)
 
-The Windows version runs through Proton, Steam's compatibility layer. (Tested with Wine on Linux; reports from
-Deck owners are welcome.)
+The Windows version runs through Proton, Steam's compatibility layer, on a current SteamOS (3.9.5 tested by a Deck
+owner). Do the setup in **Desktop Mode**.
 
-1. Switch to **Desktop Mode**. Copy your game folder (`default.xex` and the five `qkl_*.ast` files) to the Deck,
-   for example to `/home/deck/Games/HC09 game`, and unzip the release download there too.
+1. Copy your game folder (`default.xex` and the five `qkl_*.ast` files) to the Deck, for example to
+   `/home/deck/Games/HC09/game`, and unzip the release download there too (over the network with `scp`/`rsync`, or
+   with a USB drive).
 2. In Steam: **Games > Add a Non-Steam Game to My Library**, *Browse*, show *All files*, and pick `HC09Setup.exe`.
    In the new entry's **Properties > Compatibility**, tick *Force the use of a specific Steam Play compatibility tool*
-   and choose **Proton Experimental** (or Proton 9 or newer). Start it from Steam.
-3. In setup: for **Your game** choose the game folder (it is on drive `Z:`, e.g. `Z:\home\deck\Games\HC09 game`); for
-   **Install to** choose a folder on `Z:` too, e.g. `Z:\home\deck\Games\NFL Head Coach 09`. Press **Install**: building
-   takes about 12-15 minutes per game version on the Deck.
-4. Add **`hc09-launcher.exe`** from that install folder to Steam the same way (Proton forced as above). This is the
-   entry to play from, also in Game Mode, where the Deck's controls act as an Xbox controller.
-5. The first time, the launcher offers the **Steam Deck settings** (60 fps, fullscreen, V-sync, no anti-aliasing):
-   say *Yes*. In Game Mode, open the performance menu (the *...* button) and set the **refresh rate to 60 Hz** for the
-   game; the OLED model runs at 90 Hz otherwise, which makes 60 fps uneven.
+   and choose **Proton Experimental**. Start it from Steam.
+3. In setup: for **Your game** choose the game folder (it is on drive `Z:`, e.g. `Z:\home\deck\Games\HC09\game`); for
+   **Install to** choose a folder on `Z:` too, e.g. `Z:\home\deck\Games\HC09\install`. Press **Install**: building
+   takes about 5 minutes per game version on the Deck. You can remove the setup entry from Steam afterwards.
+4. Add **`hc09-launcher.exe`** from that install folder to Steam the same way, with Proton Experimental forced. This
+   is the entry to play from, also in Game Mode, where the Deck's controls act as an Xbox controller.
+5. **The Steam Deck fix:** start the launcher from Steam. It shows a line like
+   `LD_PRELOAD="$LD_PRELOAD:/home/deck/Games/HC09/install/libhc09_userptr.so" %command%`; press *OK* to copy it, close the
+   launcher, and paste it into the launcher entry's **Properties > General > Launch options**. Without it the game
+   shows a black screen with sound: the Deck's graphics driver refuses the way the game hands its memory to the GPU
+   under Proton, and the small library `libhc09_userptr.so` (installed beside the launcher) lifts that one restriction.
+   Keep the `$LD_PRELOAD:` part: Steam's overlay uses the same setting.
+6. Start the launcher again. It offers the **Steam Deck settings** (60 fps, fullscreen, V-sync, no anti-aliasing): say
+   *Yes*, pick game version **1.2** and press **Play**. In Game Mode, open the performance menu (the *...* button) and
+   set the **refresh rate to 60 Hz** for the game; the OLED model runs at 90 Hz otherwise, which makes 60 fps uneven.
+
+**Updating from 1.1.1 on a Deck:** run the new `HC09Setup.exe` from Steam as in step 2 and install into the same
+folder (your saves stay), then do step 5 once. If you already built `libhc09_userptr.so` yourself and set the launch
+option by hand, that keeps working: the launcher sees the fix is loaded and asks nothing.
 
 Your saves are in the launcher's Proton folder (Steam keeps one per added program); **Saves > Open saves folder**
 in the launcher shows them.
+
+| Problem on the Deck | Fix |
+|---|---|
+| Black screen with sound; `hc09.log` says `vkAllocateMemory (import)` | The launch option of step 5 is missing or mistyped |
+| The Steam and *...* buttons do nothing in the game | The launch option replaced Steam's own setting: keep `"$LD_PRELOAD:` at its start |
+| After a big SteamOS update: a desktop login screen, then black after the password | In Desktop Mode (Konsole) or over SSH: `sudo mv /etc/sddm.conf.d/zz-holo-autologin.conf ~/` then `sudo systemctl restart sddm` |
+| A game started over SSH plays sound but shows nothing in Game Mode | Game Mode shows only programs Steam started: start it from Steam |
+
+Thanks to the Steam Deck owner who found the black-screen cause and wrote the first fix.
 
 ## Laptops
 
@@ -162,7 +182,8 @@ PlayStation controllers: see [Controllers](#controllers). The game can show Play
 - The Colts' stadium screen (jumbotron) shows a blank panel: the art is missing in the game's own files.
 - The *Emulated* renderer is for checking accuracy and is much slower than *Native*.
 - **Intel integrated graphics:** on at least one Intel UHD 630 (driver 101.2125) the picture is wrong (missing
-  textures, wrong colours); being looked into. NVIDIA and AMD graphics are fine.
+  textures, wrong colours); being looked into. NVIDIA and AMD graphics are fine (on a Steam Deck with its fix: see
+  [Steam Deck](#steam-deck-and-linux)).
 - Each game version takes a few minutes to build when installing, and needs the processor and graphics card listed
   above; setup and the game say plainly what is missing.
 - Antivirus programs and Windows SmartScreen may warn about unsigned programs; the build step also runs a compiler

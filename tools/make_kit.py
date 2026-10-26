@@ -125,6 +125,11 @@ def main():
     copy(os.path.join(XENON, 'build', 'XenonRecomp', 'XenonRecomp.exe'), os.path.join(out, 'XenonRecomp.exe'))
     for exe in ('hc09-xexpatch.exe', 'hc09-build.exe', 'hc09-launcher.exe'):
         copy(os.path.join(a.rt10, exe), os.path.join(out, exe))
+    # Steam Deck / AMD on Linux: the LD_PRELOAD fix for the renderer's memory import (tools/steamdeck/userptr_shim.c),
+    # a Linux library built here with our clang and lld; setup puts it beside the launcher.
+    subprocess.run([os.path.join(a.llvm, 'bin', 'clang.exe'), '--target=x86_64-unknown-linux-gnu', '-O2', '-fPIC', '-shared',
+                    '-nostdlib', '-fuse-ld=lld', os.path.join(ROOT, 'tools', 'steamdeck', 'userptr_shim.c'),
+                    '-o', os.path.join(out, 'libhc09_userptr.so')], check=True)
 
     # ucrtbase.dll's import library (four names; made here with llvm-lib, no Windows SDK).
     os.makedirs(os.path.join(out, 'lib'))

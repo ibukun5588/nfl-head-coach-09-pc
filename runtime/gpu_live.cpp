@@ -1670,11 +1670,30 @@ void WindowThread(Live* l, bool show, std::promise<hc09vk::Window*> created)
 // address of guest physical address 0 (512 MiB, page aligned).
 #if !HC09_DEV_TOOLS
 // docs/HANDOFF_M11.md step 6: what the player needs, said plainly, then a clean exit (code 4, not a crash report).
+// Under Wine/Proton a failed import of the game's memory is the AMD Linux driver refusing a file-backed mapping (the
+// Steam Deck), not an old driver: the fix is libhc09_userptr.so through Steam's launch options (README "Steam Deck",
+// tools/steamdeck/userptr_shim.c). Empty unless that is the case.
+static std::string WineImportAdvice(const std::string& what)
+{
+#ifdef _WIN32
+    HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+    if (!nt || !GetProcAddress(nt, "wine_get_version") || what.find("(import)") == std::string::npos) return "";
+    return "On a Steam Deck (or Linux with AMD graphics) the game needs a small fix: start hc09-launcher.exe from Steam, "
+           "and it shows the line to paste into this program's Steam launch options (Properties > General > Launch "
+           "options). The README's \"Steam Deck\" section has the details.";
+#else
+    (void)what;
+    return "";
+#endif
+}
+
 [[noreturn]] void RequirementMissing(const std::string& what)
 {
-    std::string msg = what + "\n\nNFL Head Coach 09 for PC needs a graphics card and driver with Vulkan 1.3 (NVIDIA GTX 900 "
-                             "series, AMD RX 400 series, Intel UHD 600 or newer, with a current driver). Please update your "
-                             "graphics driver from NVIDIA, AMD or Intel and try again.";
+    std::string advice = WineImportAdvice(what);
+    std::string msg = what + "\n\n" + (!advice.empty() ? advice :
+                      "NFL Head Coach 09 for PC needs a graphics card and driver with Vulkan 1.3 (NVIDIA GTX 900 "
+                      "series, AMD RX 400 series, Intel UHD 600 or newer, with a current driver). Please update your "
+                      "graphics driver from NVIDIA, AMD or Intel and try again.");
     fprintf(stderr, "[gpu-live] *** requirement missing: %s\n", what.c_str());
     fflush(stderr);
 #ifdef _WIN32
