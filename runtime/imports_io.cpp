@@ -600,15 +600,17 @@ PPC_FUNC(__imp__NtFlushBuffersFile) { ImportLog("NtFlushBuffersFile"); WriteIosb
 
 // Xam input lives in imports_input.cpp (virtual pad + scripted presses).
 
-// ---- delete-on-close (called from NtClose) ------------------------------------
-void FileOnClose(const std::shared_ptr<KFile>& f)
+// ---- last reference to an open file (NtClose / ObDereferenceObject) ----------
+// The host file must close here: Windows refuses to delete a file that is still
+// open, so a file kept open after the guest closed it can never be deleted
+// through a later handle (the end-of-game replay cleanup then retries forever).
+KFile::~KFile()
 {
-    if (!f || !f->deleteOnClose || !f->writable) return;
-    f->deleteOnClose = false;
-    if (f->fp) { fclose(f->fp); f->fp = nullptr; }
+    if (fp) fclose(fp);
+    if (!deleteOnClose || !writable) return;
     std::error_code ec;
-    bool removed = fs::remove(HostPath(f->hostPath), ec);   // a file or an empty directory
-    fprintf(stderr, "[vfs] delete-on-close %s -> %s\n", f->guestPath.c_str(),
+    bool removed = fs::remove(HostPath(hostPath), ec);   // a file or an empty directory
+    fprintf(stderr, "[vfs] delete-on-close %s -> %s\n", guestPath.c_str(),
             removed ? "deleted" : ec ? ec.message().c_str() : "not found");
 }
 

@@ -68,10 +68,15 @@ struct KFile
     std::vector<std::string> dirEntries;
     size_t      dirPos = 0;
     bool        dirListed = false;
-};
 
-// NtClose of a file handle: honours delete-on-close (writable volumes only).
-void FileOnClose(const std::shared_ptr<KFile>& f);
+    // Last reference gone (the guest closed its last handle and any in-flight
+    // read/write finished): closes the host file and honours delete-on-close
+    // (writable volumes only). imports_io.cpp.
+    KFile() = default;
+    KFile(const KFile&) = delete;
+    KFile& operator=(const KFile&) = delete;
+    ~KFile();
+};
 
 struct KObject
 {

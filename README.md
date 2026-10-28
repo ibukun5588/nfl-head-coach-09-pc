@@ -29,7 +29,7 @@ the game's folder to a USB drive; with a PC disc drive that reads Xbox 360 discs
 
 ## Installing
 
-1. Download `HC09-PC-Setup-1.1.2.zip` from the [Releases](../../releases) page and unzip it anywhere.
+1. Download `HC09-PC-Setup-1.1.3.zip` from the [Releases](../../releases) page and unzip it anywhere.
 2. Run **HC09Setup.exe**. Windows may say it protected your PC (the program is not signed): press
    *More info* > *Run anyway*.
 3. **Your game**: press **Folder...** and choose the folder with `default.xex` and the five `qkl_*.ast` files.

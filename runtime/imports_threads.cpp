@@ -72,10 +72,20 @@ void MirrorHeader(const std::shared_ptr<KObject>& o)
     GStore32(o->guest + 4, uint32_t(ss));
 }
 
+// 0x40-byte guest blocks of released file objects, reused by NewObject: the game
+// opens and closes files all session, and GuestAlloc never frees.
+static std::vector<uint32_t> g_freeObjBlocks;
+
 std::shared_ptr<KObject> NewObject(ObjType t, uint32_t guest)
 {
     auto o = std::make_shared<KObject>();
     o->type = t;
+    if (!guest && !g_freeObjBlocks.empty())
+    {
+        guest = g_freeObjBlocks.back();
+        g_freeObjBlocks.pop_back();
+        for (uint32_t i = 0; i < 0x40; i += 4) GStore32(guest + i, 0);
+    }
     o->guest = guest ? guest : GuestAlloc(0x40, 16);
     g_byGuest[o->guest] = o;
     MirrorHeader(o);
@@ -1033,6 +1043,18 @@ PPC_FUNC(__imp__KeWaitForMultipleObjects)
 
 // ---- handles & object references --------------------------------------------
 
+// A file object's refs count its handles and Ob references. When the last one
+// goes the object leaves the tables and its guest block is reused; the KFile is
+// handed back so the caller drops it outside g_dispMu (~KFile does host I/O).
+static std::shared_ptr<KFile> ReleaseFileRef(const std::shared_ptr<KObject>& o)
+{
+    if (!o || o->type != T_File || --o->refs > 0) return nullptr;
+    auto file = std::move(o->file);
+    g_byGuest.erase(o->guest);
+    g_freeObjBlocks.push_back(o->guest);
+    return file;
+}
+
 PPC_FUNC(__imp__NtClose)
 {
     ImportLog("NtClose");
@@ -1041,10 +1063,11 @@ PPC_FUNC(__imp__NtClose)
         std::lock_guard<std::mutex> lk(g_dispMu);
         auto it = g_byHandle.find(ctx.r3.u32);
         if (it == g_byHandle.end()) { ctx.r3.u64 = STATUS_INVALID_HANDLE; return; }
-        if (it->second && it->second->type == T_File) file = it->second->file;
+        auto o = it->second;
         g_byHandle.erase(it);
+        file = ReleaseFileRef(o);
     }
-    FileOnClose(file);
+    file.reset();   // the host file closes now, unless a read or write is still running
     ctx.r3.u64 = STATUS_SUCCESS;
 }
 // NTSTATUS NtDuplicateObject(HANDLE src r3, PHANDLE out r4, ULONG options r5)
@@ -1054,6 +1077,7 @@ PPC_FUNC(__imp__NtDuplicateObject)
     std::lock_guard<std::mutex> lk(g_dispMu);
     auto o = ByHandle(ctx.r3.u32);
     if (!o) { ctx.r3.u64 = STATUS_INVALID_HANDLE; return; }
+    o->refs++;   // the new handle
     uint32_t h = NewHandle(o);
     if (ctx.r4.u32) GStore32(ctx.r4.u32, h);
     ctx.r3.u64 = STATUS_SUCCESS;
@@ -1080,9 +1104,18 @@ PPC_FUNC(__imp__ObReferenceObject)
 PPC_FUNC(__imp__ObDereferenceObject)
 {
     ImportLog("ObDereferenceObject");
-    std::lock_guard<std::mutex> lk(g_dispMu);
-    auto it = g_byGuest.find(ctx.r3.u32);
-    if (it != g_byGuest.end()) it->second->refs--;
+    std::shared_ptr<KFile> file;
+    {
+        std::lock_guard<std::mutex> lk(g_dispMu);
+        auto it = g_byGuest.find(ctx.r3.u32);
+        if (it != g_byGuest.end())
+        {
+            auto o = it->second;
+            if (o->type == T_File) file = ReleaseFileRef(o);
+            else o->refs--;
+        }
+    }
+    file.reset();
     ctx.r3.u64 = 0;
 }
 
